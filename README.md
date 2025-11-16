@@ -1,0 +1,4 @@
+- 1 .ipynb/person to do the exploratory analysis, add community detection
+- 1 .ipynb to compare
+- reusable functions to utils.py
+- write dataset here when found
