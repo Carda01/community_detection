@@ -1,0 +1,6 @@
+pandas
+networkx
+altair
+vegafusion
+nx-altair
+vl-convert-python
