@@ -24,5 +24,9 @@ def load_email():
     ).to_dict()
 
     nx.set_node_attributes(G, ground_truth_dict, 'ground_truth')
+    G.remove_edges_from(nx.selfloop_edges(G))
+
+    isolates = list(nx.isolates(G))
+    G.remove_nodes_from(isolates)
 
     return G
