@@ -59,11 +59,13 @@ def load_email(directed=False):
     return G
 
 
-def hist_degrees_cliques(graph):
+def plot_graph_summary(graph, ordering_key='ground_truth'):
     degrees = list(nx.get_node_attributes(graph, 'degree').values())
     clique_sizes = [len(c) for c in nx.find_cliques(graph)]
+    ordered_nodes = sorted(graph.nodes(), key=lambda n: graph.nodes[n][ordering_key])
+    adj_matrix = nx.to_scipy_sparse_array(graph, nodelist=ordered_nodes)
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 8))
     sns.set_theme(style="whitegrid")
 
     sns.histplot(degrees, kde=True, ax=ax1, color='skyblue', bins='auto')
@@ -75,21 +77,38 @@ def hist_degrees_cliques(graph):
     ax2.set_title('Clique Size (k) Distribution', fontsize=16)
     ax2.set_xlabel('Clique Size (k)', fontsize=12)
     ax2.set_ylabel('Frequency', fontsize=12)
-
     ax2.xaxis.set_major_locator(MaxNLocator(integer=True))
+
+    ax3.spy(adj_matrix, markersize=0.1)
+    ax3.set_title(f"Adjacency Matrix (Ordered by '{ordering_key}')", fontsize=16)
+    ax3.set_xticks([])
+    ax3.set_yticks([])
 
     plt.tight_layout()
     plt.show()
 
 
-def spy_plot_adjacency(graph, ordering_key='ground_truth'):
-    ordered_nodes = sorted(graph.nodes(), key=lambda n: graph.nodes[n][ordering_key])
+def summary_stats(graph):
+    print(f"Number of nodes: {graph.number_of_nodes()}")
+    print(f"Number of edges: {graph.number_of_edges()}")
+    
+    degrees = [d for n, d in graph.degree()]
+    avg_degree = sum(degrees) / graph.number_of_nodes()
+    print(f"Average degree: {avg_degree:.2f}")
+    print(f"Density: {nx.density(graph):.4f}")
 
-    adj_matrix = nx.to_scipy_sparse_array(graph, nodelist=ordered_nodes)
-
-    plt.figure(figsize=(8, 8))
-    plt.spy(adj_matrix, markersize=0.1)
-    plt.title(f"Adjacency Matrix Spy Plot (Ordered by '{ordering_key}')", fontsize=10)
-    plt.xticks([])
-    plt.yticks([])
-    plt.show()
+    if nx.is_connected(graph):
+        print("Graph is connected.")
+        print(f"Radius: {nx.radius(graph)}")
+        print(f"Diameter: {nx.diameter(graph)}")
+        print(f"Average shortest path length: {nx.average_shortest_path_length(graph):.2f}")
+    else:
+        num_components = nx.number_connected_components(graph)
+        print(f"Graph is not connected. It has {num_components} connected components.")
+        
+        largest_cc = max(nx.connected_components(graph), key=len)
+        subgraph = graph.subgraph(largest_cc)
+        print(f"Stats for the largest connected component ({subgraph.number_of_nodes()} nodes, {subgraph.number_of_edges()} edges):")
+        print(f"  - Radius: {nx.radius(subgraph)}")
+        print(f"  - Diameter: {nx.diameter(subgraph)}")
+        print(f"  - Average shortest path length: {nx.average_shortest_path_length(subgraph):.2f}")
