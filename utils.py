@@ -1,7 +1,7 @@
 import networkx as nx
 import pandas as pd
 
-def load_email():
+def load_email(directed=False):
     edge_list_path = 'data/email-Eu-core.txt'
     nodes_labels_path = 'data/email-Eu-core-department-labels.txt'
 
@@ -10,7 +10,8 @@ def load_email():
                          nodetype=int,
                          create_using=nx.DiGraph)
 
-    G = G.to_undirected()
+    if not directed:
+        G = G.to_undirected()
 
     df_labels = pd.read_csv(
         nodes_labels_path,
