@@ -4,3 +4,5 @@ altair
 vegafusion
 nx-altair
 vl-convert-python
+matplotlib
+seaborn

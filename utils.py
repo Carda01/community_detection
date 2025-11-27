@@ -1,6 +1,9 @@
 import networkx as nx
 import pandas as pd
 import nx_altair as nxa
+import matplotlib.pyplot as plt
+import seaborn as sns
+from matplotlib.ticker import MaxNLocator
 
 def generic_show(graph, node_color, node_size, node_tooltip, k_core=3, layout_func=nx.spring_layout, width=400, height=400):
     G = nx.k_core(graph, k=k_core)
@@ -54,3 +57,39 @@ def load_email(directed=False):
         G.nodes[n]['degree'] = G.degree[n]
 
     return G
+
+
+def hist_degrees_cliques(graph):
+    degrees = list(nx.get_node_attributes(graph, 'degree').values())
+    clique_sizes = [len(c) for c in nx.find_cliques(graph)]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    sns.set_theme(style="whitegrid")
+
+    sns.histplot(degrees, kde=True, ax=ax1, color='skyblue', bins='auto')
+    ax1.set_title('Degree Distribution', fontsize=16)
+    ax1.set_xlabel('Degree', fontsize=12)
+    ax1.set_ylabel('Frequency', fontsize=12)
+
+    sns.histplot(clique_sizes, kde=True, ax=ax2, color='salmon', discrete=True, kde_kws={'bw_adjust': 2})
+    ax2.set_title('Clique Size (k) Distribution', fontsize=16)
+    ax2.set_xlabel('Clique Size (k)', fontsize=12)
+    ax2.set_ylabel('Frequency', fontsize=12)
+
+    ax2.xaxis.set_major_locator(MaxNLocator(integer=True))
+
+    plt.tight_layout()
+    plt.show()
+
+
+def spy_plot_adjacency(graph, ordering_key='ground_truth'):
+    ordered_nodes = sorted(graph.nodes(), key=lambda n: graph.nodes[n][ordering_key])
+
+    adj_matrix = nx.to_scipy_sparse_array(graph, nodelist=ordered_nodes)
+
+    plt.figure(figsize=(8, 8))
+    plt.spy(adj_matrix, markersize=0.1)
+    plt.title(f"Adjacency Matrix Spy Plot (Ordered by '{ordering_key}')", fontsize=10)
+    plt.xticks([])
+    plt.yticks([])
+    plt.show()
