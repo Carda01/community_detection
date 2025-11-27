@@ -9,6 +9,8 @@ import seaborn as sns
 from matplotlib.ticker import MaxNLocator
 import numpy as np
 alt.data_transformers.enable("vegafusion")
+from itertools import groupby
+
 
 def generic_show(graph, node_color, node_size, node_tooltip, k_core=3, layout_func=nx.spring_layout, width=400, height=400):
     G = nx.k_core(graph, k=k_core)
@@ -66,26 +68,26 @@ def load_email(directed=False):
 def run_leiden(nx_graph, resolution=1.0, seed=42):
     """
     Runs Leiden with adjustable resolution.
-    
+
     Params:
-    - resolution: 
+    - resolution:
         1.0 = Standard Modularity (default)
         < 1.0 = Favors LARGER (fewer) communities
         > 1.0 = Favors SMALLER (more) communities
     """
     # convert NetworkX to iGraph
     hg = ig.Graph.from_networkx(nx_graph)
-    
+
     # Run Leiden using RBConfiguration (supports resolution)
     # We use RBConfigurationVertexPartition because standard Modularity doesn't accept resolution
     partition = leidenalg.find_partition(
-        hg, 
+        hg,
         leidenalg.RBConfigurationVertexPartition,
         resolution_parameter=resolution,
-        n_iterations=-1, 
+        n_iterations=-1,
         seed=seed
     )
-    
+
     # map back to NetworkX nodes
     communities = []
     for i in range(len(partition)):
@@ -93,19 +95,17 @@ def run_leiden(nx_graph, resolution=1.0, seed=42):
         if '_nx_name' in hg.vs.attributes():
             original_nodes = set(hg.vs[indices]['_nx_name'])
         else:
-            original_nodes = set(indices) 
+            original_nodes = set(indices)
         communities.append(original_nodes)
-        
+
     return communities
 
 
-def plot_graph_summary(graph, ordering_key='ground_truth'):
+def hist_degrees_cliques(graph):
     degrees = list(nx.get_node_attributes(graph, 'degree').values())
     clique_sizes = [len(c) for c in nx.find_cliques(graph)]
-    ordered_nodes = sorted(graph.nodes(), key=lambda n: graph.nodes[n][ordering_key])
-    adj_matrix = nx.to_scipy_sparse_array(graph, nodelist=ordered_nodes)
 
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 8))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
     sns.set_theme(style="whitegrid")
 
     sns.histplot(degrees, kde=True, ax=ax1, color='skyblue', bins='auto')
@@ -117,14 +117,56 @@ def plot_graph_summary(graph, ordering_key='ground_truth'):
     ax2.set_title('Clique Size (k) Distribution', fontsize=16)
     ax2.set_xlabel('Clique Size (k)', fontsize=12)
     ax2.set_ylabel('Frequency', fontsize=12)
+
     ax2.xaxis.set_major_locator(MaxNLocator(integer=True))
 
-    ax3.spy(adj_matrix, markersize=0.1)
-    ax3.set_title(f"Adjacency Matrix (Ordered by '{ordering_key}')", fontsize=16)
-    ax3.set_xticks([])
-    ax3.set_yticks([])
-
     plt.tight_layout()
+    plt.show()
+
+
+def spy_plot_adjacency(graph, ordering_key='ground_truth', min_label_spacing=50):
+    ordered_nodes = sorted(graph.nodes(), key=lambda n: graph.nodes[n][ordering_key])
+
+    community_labels = [graph.nodes[n][ordering_key] for n in ordered_nodes]
+    adj_matrix = nx.to_scipy_sparse_array(graph, nodelist=ordered_nodes)
+
+    community_ticks = []
+    unique_communities = []
+    community_sizes = []
+    start_index = 0
+    for comm_id, group in groupby(community_labels):
+        unique_communities.append(comm_id)
+        group_size = len(list(group))
+        community_sizes.append(group_size)
+        community_ticks.append(start_index)
+        start_index += group_size
+
+    fig, ax = plt.subplots(figsize=(15, 15))
+    ax.spy(adj_matrix, markersize=0.1)
+    ax.set_title(f"Adjacency Matrix Spy Plot (Ordered by '{ordering_key}')", fontsize=12)
+
+    colors = ['#FFFFFF', '#F0F0F0']
+    for i, (pos, size) in enumerate(zip(community_ticks, community_sizes)):
+        ax.axhspan(pos, pos + size, facecolor=colors[i % 2], alpha=0.7, zorder=-100)
+
+    display_labels = []
+    last_label_pos = -min_label_spacing
+    for i, tick_pos in enumerate(community_ticks):
+        if tick_pos - last_label_pos >= min_label_spacing:
+            display_labels.append(unique_communities[i])
+            last_label_pos = tick_pos
+        else:
+            display_labels.append('')
+
+    ax.set_xticks(community_ticks)
+    ax.set_xticklabels(display_labels, rotation=90, fontsize=10)
+    ax.set_yticks(community_ticks)
+    ax.set_yticklabels(display_labels, fontsize=10)
+
+    ax.grid(True, which='major', axis='both', linestyle='--', linewidth=0.5, color='gray')
+    ax.tick_params(axis='x', bottom=False, top=True, labelbottom=False, labeltop=True)
+    ax.set_xlabel("Community ID", labelpad=15)
+    ax.set_ylabel("Community ID", labelpad=15)
     plt.show()
 
 
