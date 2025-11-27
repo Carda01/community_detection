@@ -6,3 +6,5 @@ nx-altair
 vl-convert-python
 matplotlib
 seaborn
+leidenalg
+igraph

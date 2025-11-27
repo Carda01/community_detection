@@ -7,6 +7,7 @@ import leidenalg
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.ticker import MaxNLocator
+import numpy as np
 alt.data_transformers.enable("vegafusion")
 
 def generic_show(graph, node_color, node_size, node_tooltip, k_core=3, layout_func=nx.spring_layout, width=400, height=400):
@@ -151,3 +152,156 @@ def summary_stats(graph):
         print(f"  - Radius: {nx.radius(subgraph)}")
         print(f"  - Diameter: {nx.diameter(subgraph)}")
         print(f"  - Average shortest path length: {nx.average_shortest_path_length(subgraph):.2f}")
+    print(f"Avg clustering: {nx.average_clustering(subgraph):.2f}")
+
+def load_twitch_user_attributes(G):
+    df = pd.read_csv("data/musae_PTBR_target.csv")
+    attr_dict = {
+        row["new_id"]: {
+            "id": row["new_id"],
+            "days": row["days"],
+            "mature": row["mature"],
+            "views": row["views"],
+            "partner": row["partner"],
+        }
+        for _, row in df.iterrows()}
+
+    df = df[["days", "mature", "views", "partner", "new_id"]].rename(columns={"new_id": "id"}).copy()
+    nx.set_node_attributes(G, attr_dict)
+    return G, df
+
+def visualize_static_entire_graph(G, node_size=15):
+    pos = nx.spring_layout(
+    G,
+    k=2,
+    iterations=400,   
+    seed=42)
+    plt.figure(figsize=(14, 14))
+    nx.draw(G, pos,
+            node_size=node_size,
+            edge_color="gray",
+            alpha=0.3,
+            with_labels=False)
+    plt.show()
+
+def twitch_user_exploratory_analysis(df):    
+    sns.set(style="whitegrid")
+    
+    # Distribution of Account Age
+    plt.figure(figsize=(8,5))
+    sns.histplot(df['days'], bins=30, kde=True)
+    plt.title("Distribution of Account Age (days)")
+    plt.show()
+
+    # Distribution of Views
+    plt.figure(figsize=(8,5))
+    sns.histplot(df['views'], bins=40)
+    plt.title("Distribution of Channel Views")
+    plt.show()
+
+    # Distribution of Views log scale
+    plt.figure(figsize=(8,5))
+    sns.histplot(df['views'], bins=40, log_scale=True)
+    plt.title("Distribution of Channel Views (log scale)")
+    plt.show()
+
+    # Mature Content Proportion
+    plt.figure(figsize=(6,4))
+    sns.countplot(x='mature', data=df)
+    plt.title("Mature vs Non-Mature Channels")
+    plt.show()
+
+    # Percentage of mature users
+    mature_pct = df['mature'].mean() * 100
+    print(f"Percentage of mature channels: {mature_pct:.2f}%\n")
+
+    # Partner Status Distribution
+    plt.figure(figsize=(6,4))
+    sns.countplot(x='partner', data=df)
+    plt.title("Twitch Partner Status Distribution")
+    plt.show()
+
+    partner_pct = df['partner'].mean() * 100
+    print(f"Percentage of Twitch Partners: {partner_pct:.2f}%\n")
+
+    # Views by Partner Status
+    plt.figure(figsize=(7,5))
+    sns.boxplot(x='partner', y='views', data=df)
+    plt.title("Views by Partner Status")
+    plt.show()
+
+    # Correlation Heatmap
+    plt.figure(figsize=(6,4))
+    corr = df[['days', 'views']].corr()
+    sns.heatmap(corr, annot=True, cmap="coolwarm", vmin=-1, vmax=1)
+    plt.title("Correlation Between Account Age and Views")
+    plt.show()
+
+    # Summary Statistics
+    print("Summary statistics:")
+    print(df[['days', 'views']].describe(), "\n")
+
+    # Group Comparisons
+    print("Average views by partner status:")
+    print(df.groupby('partner')['views'].mean(), "\n")
+
+    print("Average account age by mature flag:")
+    print(df.groupby('mature')['days'].mean(), "\n")
+
+    # Outliers
+    print("Top 10 most viewed accounts:")
+    print(df.nlargest(10, 'views')[['id','views','days','partner','mature']], "\n")
+
+    print("Oldest 10 accounts:")
+    print(df.nlargest(10, 'days')[['id','views','days','partner','mature']], "\n")
+
+
+def visualize_centrality(G, measure="degree"):
+    # --- Compute centrality ---
+    if measure == "degree":
+        centrality = nx.degree_centrality(G)
+    elif measure == "betweenness":
+        centrality = nx.betweenness_centrality(G, normalized=True)
+    elif measure == "closeness":
+        centrality = nx.closeness_centrality(G)
+    elif measure == "eigenvector":
+        centrality = nx.eigenvector_centrality(G, max_iter=500)
+    elif measure == "pagerank":
+        centrality = nx.pagerank(G)
+    else:
+        raise ValueError("Unknown centrality measure provided.")
+    
+    print(f"Computed {measure} centrality for {len(G.nodes())} nodes.\n")
+
+    # --- Convert centrality to array ---
+    values = np.array(list(centrality.values()))
+
+    # Normalize for coloring and sizing
+    norm_values = (values - values.min()) / (values.max() - values.min() + 1e-12)
+
+    # --- Node colors: white → blue palette ---
+    # sns.light_palette gives a sequential color map (light to dark)
+    cmap = sns.light_palette("blue", as_cmap=True)
+
+    # --- Node sizes: amplify the effect ---
+    node_sizes = 200 + (norm_values * 1500)
+
+    # --- Graph layout ---
+    pos = nx.spring_layout(G, seed=42)
+
+    # --- Draw graph ---
+    plt.figure(figsize=(10, 10))
+    nodes = nx.draw_networkx_nodes(
+        G, pos,
+        node_color=norm_values,
+        cmap=cmap,
+        node_size=node_sizes
+    )
+
+    nx.draw_networkx_edges(G, pos, alpha=0.3)
+
+    nodes.set_edgecolor("black")
+    plt.title(f"{measure.capitalize()} Centrality Visualization", fontsize=14)
+    plt.colorbar(nodes, label=f"{measure.capitalize()} Centrality")
+    plt.axis("off")
+    plt.show()
