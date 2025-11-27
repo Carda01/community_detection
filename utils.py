@@ -195,7 +195,7 @@ def summary_stats(graph):
         print(f"  - Radius: {nx.radius(subgraph)}")
         print(f"  - Diameter: {nx.diameter(subgraph)}")
         print(f"  - Average shortest path length: {nx.average_shortest_path_length(subgraph):.2f}")
-    print(f"Avg clustering: {nx.average_clustering(subgraph):.2f}")
+    print(f"Avg clustering: {nx.average_clustering(graph):.2f}")
 
 def load_twitch_user_attributes(G):
     df = pd.read_csv("data/musae_PTBR_target.csv")
