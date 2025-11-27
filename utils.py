@@ -10,6 +10,8 @@ def load_email():
                          nodetype=int,
                          create_using=nx.DiGraph)
 
+    G = G.to_undirected()
+
     df_labels = pd.read_csv(
         nodes_labels_path,
         sep=' ',
