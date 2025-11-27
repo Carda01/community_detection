@@ -1,9 +1,13 @@
 import networkx as nx
 import pandas as pd
+import altair as alt
 import nx_altair as nxa
+import igraph as ig
+import leidenalg
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.ticker import MaxNLocator
+alt.data_transformers.enable("vegafusion")
 
 def generic_show(graph, node_color, node_size, node_tooltip, k_core=3, layout_func=nx.spring_layout, width=400, height=400):
     G = nx.k_core(graph, k=k_core)
@@ -57,6 +61,41 @@ def load_email(directed=False):
         G.nodes[n]['degree'] = G.degree[n]
 
     return G
+
+def run_leiden(nx_graph, resolution=1.0, seed=42):
+    """
+    Runs Leiden with adjustable resolution.
+    
+    Params:
+    - resolution: 
+        1.0 = Standard Modularity (default)
+        < 1.0 = Favors LARGER (fewer) communities
+        > 1.0 = Favors SMALLER (more) communities
+    """
+    # convert NetworkX to iGraph
+    hg = ig.Graph.from_networkx(nx_graph)
+    
+    # Run Leiden using RBConfiguration (supports resolution)
+    # We use RBConfigurationVertexPartition because standard Modularity doesn't accept resolution
+    partition = leidenalg.find_partition(
+        hg, 
+        leidenalg.RBConfigurationVertexPartition,
+        resolution_parameter=resolution,
+        n_iterations=-1, 
+        seed=seed
+    )
+    
+    # map back to NetworkX nodes
+    communities = []
+    for i in range(len(partition)):
+        indices = partition[i]
+        if '_nx_name' in hg.vs.attributes():
+            original_nodes = set(hg.vs[indices]['_nx_name'])
+        else:
+            original_nodes = set(indices) 
+        communities.append(original_nodes)
+        
+    return communities
 
 
 def plot_graph_summary(graph, ordering_key='ground_truth'):
