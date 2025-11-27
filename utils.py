@@ -2,21 +2,24 @@ import networkx as nx
 import pandas as pd
 import nx_altair as nxa
 
-def show_mail_graph(G, k_core=3):
-    G = nx.k_core(G, k=k_core)
-    pos = nx.spring_layout(G)
+def generic_show(graph, node_color, node_size, node_tooltip, k_core=3, layout_func=nx.spring_layout, width=400, height=400):
+    G = nx.k_core(graph, k=k_core)
+    pos = layout_func(G)
     chart = nxa.draw_networkx(
         G=G,
         pos=pos,
         width=0.1,
         alpha=0.8,
-        node_color='ground_truth',
-        node_size='degree',
-        node_tooltip=['ground_truth']
+        node_color=node_color,
+        node_size=node_size,
+        node_tooltip=node_tooltip
     )
 
-    chart.properties(width=400, height=400).interactive().show()
+    chart.properties(width=width, height=height).interactive().show()
 
+
+def show_mail_graph(G, k_core=3):
+    generic_show(G, 'ground_truth', 'degree', ['ground_truth'], k_core=k_core)
 
 
 def load_email(directed=False):
