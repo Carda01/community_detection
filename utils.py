@@ -3,7 +3,7 @@ import pandas as pd
 import nx_altair as nxa
 
 def show_mail_graph(G, k_core=3):
-    G = nx.k_core(G, k=3)
+    G = nx.k_core(G, k=k_core)
     pos = nx.spring_layout(G)
     chart = nxa.draw_networkx(
         G=G,
