@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.ticker import MaxNLocator
 alt.data_transformers.enable("vegafusion")
-from itertools import groupby
+from itertools import groupby, zip_longest
 
 
 def generic_show(graph, node_color, node_size, node_tooltip, k_core=3, layout_func=nx.spring_layout, width=400, height=400):
@@ -237,12 +237,16 @@ def calculate_centrality_metrics(graph, centrality_funcs):
     return df[final_columns].rename(columns={'ground_truth': 'Ground Truth'})
 
 
-def visualize_top_n_centrality(df, centrality_measure, top_n=20):
+def visualize_top_n_centrality(df, centrality_measure, top_n=20, centralities_to_show=None):
     if centrality_measure not in df.columns:
         print(f"Error: '{centrality_measure}' not found in DataFrame columns.")
         return
 
-    centrality_cols = [col for col in df.columns if col != 'Ground Truth']
+    if centralities_to_show:
+        centrality_cols = list(centralities_to_show)
+    else:
+        centrality_cols = [col for col in df.columns if col != 'Ground Truth']
+
     rank_df = pd.DataFrame(index=df.index)
     for col in centrality_cols:
         rank_df[col] = df[col].rank(ascending=False, method='min').astype(int)
@@ -277,3 +281,20 @@ def visualize_top_n_centrality(df, centrality_measure, top_n=20):
         fontsize=16
     )
     plt.show()
+
+
+def show_top_nodes_by_centrality(df, centrality_measure, top_n=20):
+    if centrality_measure not in df.columns:
+        print(f"Error: '{centrality_measure}' not found in DataFrame columns.")
+        return
+
+    display_df = df.reset_index().rename(columns={'index': 'Node'})
+
+    top_nodes = display_df.sort_values(by=centrality_measure, ascending=False).head(top_n)
+
+    columns_to_show = ['Node', 'Ground Truth', centrality_measure]
+    top_nodes_display = top_nodes[columns_to_show]
+
+    return top_nodes_display.style.set_caption(
+        f"Top {top_n} Nodes by {centrality_measure.replace('_', ' ').capitalize()}"
+    ).background_gradient(cmap='viridis', subset=[centrality_measure])
