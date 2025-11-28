@@ -28,6 +28,7 @@ def generic_show(graph, node_color, node_size, node_tooltip, k_core=3, layout_fu
 
 
 def show_mail_graph(G, k_core=3):
+    enrich_graph_with_centrality(G, [nx.degree])
     generic_show(G, 'ground_truth', 'degree', ['ground_truth'], k_core=k_core)
 
 
@@ -59,8 +60,6 @@ def load_email(directed=False):
 
     isolates = list(nx.isolates(G))
     G.remove_nodes_from(isolates)
-    for n in G.nodes():
-        G.nodes[n]['degree'] = G.degree[n]
 
     return G
 
@@ -196,3 +195,43 @@ def summary_stats(graph):
         print(f"  - Radius: {nx.radius(subgraph)}")
         print(f"  - Diameter: {nx.diameter(subgraph)}")
         print(f"  - Average shortest path length: {nx.average_shortest_path_length(subgraph):.2f}")
+
+
+def enrich_graph_with_centrality(graph, centrality_funcs):
+    if not graph:
+        print("Graph is empty, returning.")
+        return graph
+
+    first_node = next(iter(graph.nodes()))
+
+    for func in centrality_funcs:
+        attribute_name = func.__name__
+
+        if attribute_name in graph.nodes[first_node]:
+            print(f"Skipping '{attribute_name}': attribute already exists.")
+            continue
+
+        print(f"Calculating and adding node attribute '{attribute_name}'...")
+        scores = func(graph)
+        nx.set_node_attributes(graph, dict(scores), attribute_name)
+
+    return graph
+
+
+def calculate_centrality_metrics(graph, centrality_funcs):
+    enriched_graph = enrich_graph_with_centrality(graph, centrality_funcs)
+
+    centrality_names = [func.__name__ for func in centrality_funcs]
+    columns_to_include = ['ground_truth'] + centrality_names
+
+    data = []
+    for node, attrs in enriched_graph.nodes(data=True):
+        node_data = {'Node': node}
+        for col in columns_to_include:
+            node_data[col] = attrs.get(col)
+        data.append(node_data)
+
+    df = pd.DataFrame(data)
+
+    final_columns = ['ground_truth'] + centrality_names
+    return df[final_columns].rename(columns={'ground_truth': 'Ground Truth'})
