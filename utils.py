@@ -8,6 +8,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.ticker import MaxNLocator
 from IPython.display import Markdown, display
+import matplotlib.cm as cm
+import matplotlib.colors as colors
+import numpy as np
+import community as community_louvain
+from sklearn.cluster import SpectralClustering
+
+
 
 alt.data_transformers.enable("vegafusion")
 from itertools import groupby, zip_longest
@@ -198,23 +205,6 @@ def summary_stats(graph):
         print(f"  - Diameter: {nx.diameter(subgraph)}")
         print(f"  - Average shortest path length: {nx.average_shortest_path_length(subgraph):.2f}")
 
-def load_twitch_user_attributes(G):
-    df = pd.read_csv("data/musae_PTBR_target.csv")
-    attr_dict = {
-        row["new_id"]: {
-            "id": row["new_id"],
-            "account_age_days": row["days"],
-            "is_mature": row["mature"],
-            "total_views": row["views"],
-            "is_partner": row["partner"],
-        }
-        for _, row in df.iterrows()}
-
-    df = df[["days", "mature", "views", "partner", "new_id"]].rename(columns={"new_id": "id",
-                                            "days": "account_age_days", "mature": "is_mature", 
-                                            "views": "total_views", "partner": "is_partner"}).copy()
-    nx.set_node_attributes(G, attr_dict)
-    return G, df
 
 def visualize_static_entire_graph(G, node_size=15):
     pos = nx.spring_layout(G, k=2, iterations=400, seed=42)
@@ -226,178 +216,6 @@ def visualize_static_entire_graph(G, node_size=15):
             with_labels=False)
     plt.show()
 
-def twitch_user_exploratory_analysis(df):    
-    sns.set(style="whitegrid")
-    
-    # Distribution of Account Age
-    plt.figure(figsize=(8,5))
-    sns.histplot(df['account_age_days'], bins=30, kde=True)
-    plt.title("Distribution of Account Age (days)")
-    plt.show()
-    display(Markdown("The distribution of account age shows a broad spread with two noticeable peaks around ~600 and ~1600 days, " \
-    "indicating both a large group of relatively new users and a substantial cluster of " \
-    "long-standing accounts, while very old accounts (3000+ days) are rare."))
-
-    # Distribution of Views
-    plt.figure(figsize=(8,5))
-    sns.histplot(df['total_views'], bins=40)
-    plt.title("Distribution of Channel Views")
-    plt.show()
-
-    # Distribution of Views log scale
-    plt.figure(figsize=(8,5))
-    sns.histplot(df['total_views'], bins=40, log_scale=True)
-    plt.title("Distribution of Channel Views (log scale)")
-    plt.show()
-    display(Markdown("The distribution of channel views is heavily right-skewed, with most streamers clustered between 1,000 and" \
-    "100,000 views while a small number of outliers reach into the millions, highlighting a strong popularity imbalance" \
-    " on the platform."))
-
-    # Mature Content Proportion
-    plt.figure(figsize=(6,4))
-    sns.countplot(x='is_mature', data=df)
-    plt.title("Mature vs Non-Mature Channels")
-    plt.show()
-
-    # Percentage of mature users
-    mature_pct = df['is_mature'].mean() * 100
-    display(Markdown(f"Percentage of mature indicated channels: {mature_pct:.2f}%\n"))
-
-    # Partner Status Distribution
-    plt.figure(figsize=(6,4))
-    sns.countplot(x='is_partner', data=df)
-    plt.title("Twitch Partner Status Distribution")
-    plt.show()
-
-    partner_pct = df['is_partner'].mean() * 100
-    display(Markdown(f"Percentage of Twitch Partners: {partner_pct:.2f}%\n"))
-
-    # Views by Partner Status
-    plt.figure(figsize=(7,5))
-    sns.boxplot(x='is_partner', y='total_views', data=df)
-    plt.title("Views by Partner Status")
-    plt.show()
-    display(Markdown("Partnered streamers have dramatically higher view counts than non-partners," \
-    "with most of the extreme outliers concentrated in the partner group, highlighting a" \
-    "strong divide in visibility and reach between the groups."))
-
-    # Correlation Heatmap
-    plt.figure(figsize=(6,4))
-    corr = df[['account_age_days', 'total_views']].corr()
-    sns.heatmap(corr, annot=True, cmap="coolwarm", vmin=-1, vmax=1)
-    plt.title("Correlation Between Account Age and Views")
-    plt.show()
-    display(Markdown("There is only a very weak positive correlation between account age and total views," \
-    "suggesting that simply having an older Twitch account does not correspond to how many views a" \
-    "channel gets."))
-
-    # Summary Statistics
-    print("Summary statistics:")
-    print(df[['account_age_days', 'total_views']].describe().applymap(lambda x: f"{x:.0f}"), "\n")
-
-    # Group Comparisons
-    print("Average views by partner status:")
-    print(df.groupby('is_partner')['total_views'].mean().apply(lambda x: f"{x:.0f}"), "\n")
-
-    print("Average account age by mature flag:")
-    print(df.groupby('is_mature')['account_age_days'].mean().apply(lambda x: f"{x:.0f}"), "\n")
-
-    print("Top 10 most viewed accounts:")
-    print(df.nlargest(10, 'total_views')[['id','total_views','account_age_days','is_partner','is_mature']]
-        .applymap(lambda x: f"{x:.0f}" if isinstance(x, (int, float)) else x), "\n")
-
-    print("Oldest 10 accounts:")
-    print(df.nlargest(10, 'account_age_days')[['id','total_views','account_age_days','is_partner','is_mature']]
-      .applymap(lambda x: f"{x:.0f}" if isinstance(x, (int, float)) else x), "\n")
-
-def visualize_centrality(G, measure="degree", k_core=3, layout_func=nx.spring_layout):
-    H = G.copy()
-    if measure == "degree":
-        centrality = nx.degree_centrality(H)
-        raw_degree = dict(H.degree())
-    elif measure == "betweenness":
-        centrality = nx.betweenness_centrality(H, normalized=True)
-        raw_degree = None
-    elif measure == "closeness":
-        centrality = nx.closeness_centrality(H)
-        raw_degree = None
-    elif measure == "eigenvector":
-        centrality = nx.eigenvector_centrality(H, max_iter=500)
-        raw_degree = None
-    elif measure == "pagerank":
-        centrality = nx.pagerank(H)
-        raw_degree = None
-    else:
-        raise ValueError("Unknown centrality measure")
-
-    nx.set_node_attributes(H, centrality, name=measure)
-    max_val = max(centrality.values())
-    scaled_size = {n: (centrality[n] / max_val) * 40 for n in H.nodes()}
-    nx.set_node_attributes(H, scaled_size, name="centrality_size")
-
-    print(f"\nTop 10 nodes by {measure} centrality:\n")
-
-    top10 = sorted(centrality.items(), key=lambda x: x[1], reverse=True)[:10]
-    rows = []
-
-    for node, val in top10:
-        row = {"node": node, measure: round(val, 5)}
-        if measure == "degree":
-            row["raw_degree"] = raw_degree[node]
-        for attr, attr_val in H.nodes[node].items():
-            if attr not in ["centrality_size"]:
-                row[attr] = attr_val
-        rows.append(row)
-
-    df = pd.DataFrame(rows)
-    print(df.to_string(index=False))
-    print()
-    for node in H.nodes():
-        if measure == "degree":
-            H.nodes[node]["_tooltip"] = (
-                f"id={node} | degree_cent={centrality[node]:.5f} | degree={raw_degree[node]}"
-            )
-        else:
-            H.nodes[node]["_tooltip"] = f"id={node} | {measure}={centrality[node]:.5f}"
-
-    generic_show(
-        graph=H,
-        node_color=measure,
-        node_size="centrality_size",
-        node_tooltip=["_tooltip"],
-        k_core=k_core,
-        layout_func=layout_func
-    )
-
-# Compare centrality measures with twitch user attributes
-def compare_centralities_with_attributes(G):
-    deg_cent = nx.degree_centrality(G)
-    bet_cent = nx.betweenness_centrality(G, normalized=True)
-    clo_cent = nx.closeness_centrality(G)
-    eig_cent = nx.eigenvector_centrality(G, max_iter=500)
-
-    rows = []
-    for n in G.nodes():
-        attrs = G.nodes[n]
-        rows.append({
-            "node": n,
-            "degree": deg_cent[n],
-            "betweenness": bet_cent[n],
-            "closeness": clo_cent[n],
-            "eigenvector": eig_cent[n],
-            "total_views": attrs.get("total_views", None),
-            "account_age_days": attrs.get("account_age_days", None),
-            "is_mature": int(attrs.get("is_mature", False)),
-            "is_partner": int(attrs.get("is_partner", False)),
-        })
-
-    df = pd.DataFrame(rows).dropna()
-    corr = df.drop(columns=["node"]).corr()
-
-    plt.figure(figsize=(10, 8))
-    sns.heatmap(corr, annot=True, cmap="Blues", linewidths=0.5)
-    plt.title("Correlation Analysis", fontsize=12)
-    plt.show()
 
 
 def enrich_graph_with_centrality(graph, centrality_funcs):
@@ -501,3 +319,295 @@ def show_top_nodes_by_centrality(df, centrality_measure, top_n=20):
     return top_nodes_display.style.set_caption(
         f"Top {top_n} Nodes by {centrality_measure.replace('_', ' ').capitalize()}"
     ).background_gradient(cmap='viridis', subset=[centrality_measure])
+
+
+# ---------------------------Twitch Specific Functions ---------------------------
+
+def load_twitch_user_attributes(G):
+    df = pd.read_csv("data/musae_PTBR_target.csv")
+    attr_dict = {
+        row["new_id"]: {
+            "id": row["new_id"],
+            "account_age_days": row["days"],
+            "is_mature": row["mature"],
+            "total_views": row["views"],
+            "is_partner": row["partner"],
+        }
+        for _, row in df.iterrows()}
+
+    df = df[["days", "mature", "views", "partner", "new_id"]].rename(columns={"new_id": "id",
+                                            "days": "account_age_days", "mature": "is_mature", 
+                                            "views": "total_views", "partner": "is_partner"}).copy()
+    nx.set_node_attributes(G, attr_dict)
+    return G, df
+
+
+# Compare centrality measures with twitch user attributes
+def compare_centralities_with_attributes(G):
+    deg_cent = nx.degree_centrality(G)
+    bet_cent = nx.betweenness_centrality(G, normalized=True)
+    clo_cent = nx.closeness_centrality(G)
+    eig_cent = nx.eigenvector_centrality(G, max_iter=500)
+
+    rows = []
+    for n in G.nodes():
+        attrs = G.nodes[n]
+        rows.append({
+            "node": n,
+            "degree": deg_cent[n],
+            "betweenness": bet_cent[n],
+            "closeness": clo_cent[n],
+            "eigenvector": eig_cent[n],
+            "total_views": attrs.get("total_views", None),
+            "account_age_days": attrs.get("account_age_days", None),
+            "is_mature": int(attrs.get("is_mature", False)),
+            "is_partner": int(attrs.get("is_partner", False)),
+        })
+
+    df = pd.DataFrame(rows).dropna()
+    corr = df.drop(columns=["node"]).corr()
+
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(corr, annot=True, cmap="Blues", linewidths=0.5)
+    plt.title("Correlation Analysis", fontsize=12)
+    plt.show()
+
+
+def visualize_centrality(G, measure="degree", k_core=3, layout_func=nx.spring_layout):
+    H = G.copy()
+    if measure == "degree":
+        centrality = nx.degree_centrality(H)
+        raw_degree = dict(H.degree())
+    elif measure == "betweenness":
+        centrality = nx.betweenness_centrality(H, normalized=True)
+        raw_degree = None
+    elif measure == "closeness":
+        centrality = nx.closeness_centrality(H)
+        raw_degree = None
+    elif measure == "eigenvector":
+        centrality = nx.eigenvector_centrality(H, max_iter=500)
+        raw_degree = None
+    elif measure == "pagerank":
+        centrality = nx.pagerank(H)
+        raw_degree = None
+    else:
+        raise ValueError("Unknown centrality measure")
+
+    nx.set_node_attributes(H, centrality, name=measure)
+    max_val = max(centrality.values())
+    scaled_size = {n: (centrality[n] / max_val) * 40 for n in H.nodes()}
+    nx.set_node_attributes(H, scaled_size, name="centrality_size")
+
+    print(f"\nTop 10 nodes by {measure} centrality:\n")
+
+    top10 = sorted(centrality.items(), key=lambda x: x[1], reverse=True)[:10]
+    rows = []
+
+    for node, val in top10:
+        row = {"node": node, measure: round(val, 5)}
+        if measure == "degree":
+            row["raw_degree"] = raw_degree[node]
+        for attr, attr_val in H.nodes[node].items():
+            if attr not in ["centrality_size"]:
+                row[attr] = attr_val
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    print(df.to_string(index=False))
+    print()
+    for node in H.nodes():
+        if measure == "degree":
+            H.nodes[node]["_tooltip"] = (
+                f"id={node} | degree_cent={centrality[node]:.5f} | degree={raw_degree[node]}"
+            )
+        else:
+            H.nodes[node]["_tooltip"] = f"id={node} | {measure}={centrality[node]:.5f}"
+
+    generic_show(
+        graph=H,
+        node_color=measure,
+        node_size="centrality_size",
+        node_tooltip=["_tooltip"],
+        k_core=k_core,
+        layout_func=layout_func
+    )
+
+
+def twitch_user_exploratory_analysis(df):    
+    sns.set(style="whitegrid")
+    
+    # Distribution of Account Age
+    plt.figure(figsize=(8,5))
+    sns.histplot(df['account_age_days'], bins=30, kde=True)
+    plt.title("Distribution of Account Age (days)")
+    plt.show()
+    display(Markdown("The distribution of account age shows a broad spread with two noticeable peaks around ~600 and ~1600 days, " \
+    "indicating both a large group of relatively new users and a substantial cluster of " \
+    "long-standing accounts, while very old accounts (3000+ days) are rare."))
+
+    # Distribution of Views
+    plt.figure(figsize=(8,5))
+    sns.histplot(df['total_views'], bins=40)
+    plt.title("Distribution of Channel Views")
+    plt.show()
+
+    # Distribution of Views log scale
+    plt.figure(figsize=(8,5))
+    sns.histplot(df['total_views'], bins=40, log_scale=True)
+    plt.title("Distribution of Channel Views (log scale)")
+    plt.show()
+    display(Markdown("The distribution of channel views is heavily right-skewed, with most streamers clustered between 1,000 and" \
+    "100,000 views while a small number of outliers reach into the millions, highlighting a strong popularity imbalance" \
+    " on the platform."))
+
+    # Mature Content Proportion
+    plt.figure(figsize=(6,4))
+    sns.countplot(x='is_mature', data=df)
+    plt.title("Mature vs Non-Mature Channels")
+    plt.show()
+
+    # Percentage of mature users
+    mature_pct = df['is_mature'].mean() * 100
+    display(Markdown(f"Percentage of mature indicated channels: {mature_pct:.2f}%\n"))
+
+    # Partner Status Distribution
+    plt.figure(figsize=(6,4))
+    sns.countplot(x='is_partner', data=df)
+    plt.title("Twitch Partner Status Distribution")
+    plt.show()
+
+    partner_pct = df['is_partner'].mean() * 100
+    display(Markdown(f"Percentage of Twitch Partners: {partner_pct:.2f}%\n"))
+
+    # Views by Partner Status
+    plt.figure(figsize=(7,5))
+    sns.boxplot(x='is_partner', y='total_views', data=df)
+    plt.title("Views by Partner Status")
+    plt.show()
+    display(Markdown("Partnered streamers have dramatically higher view counts than non-partners," \
+    "with most of the extreme outliers concentrated in the partner group, highlighting a" \
+    "strong divide in visibility and reach between the groups."))
+
+    # Correlation Heatmap
+    plt.figure(figsize=(6,4))
+    corr = df[['account_age_days', 'total_views']].corr()
+    sns.heatmap(corr, annot=True, cmap="coolwarm", vmin=-1, vmax=1)
+    plt.title("Correlation Between Account Age and Views")
+    plt.show()
+    display(Markdown("There is only a very weak positive correlation between account age and total views," \
+    "suggesting that simply having an older Twitch account does not correspond to how many views a" \
+    "channel gets."))
+
+    # Summary Statistics
+    print("Summary statistics:")
+    print(df[['account_age_days', 'total_views']].describe().applymap(lambda x: f"{x:.0f}"), "\n")
+
+    # Group Comparisons
+    print("Average views by partner status:")
+    print(df.groupby('is_partner')['total_views'].mean().apply(lambda x: f"{x:.0f}"), "\n")
+
+    print("Average account age by mature flag:")
+    print(df.groupby('is_mature')['account_age_days'].mean().apply(lambda x: f"{x:.0f}"), "\n")
+
+    print("Top 10 most viewed accounts:")
+    print(df.nlargest(10, 'total_views')[['id','total_views','account_age_days','is_partner','is_mature']]
+        .applymap(lambda x: f"{x:.0f}" if isinstance(x, (int, float)) else x), "\n")
+
+    print("Oldest 10 accounts:")
+    print(df.nlargest(10, 'account_age_days')[['id','total_views','account_age_days','is_partner','is_mature']]
+      .applymap(lambda x: f"{x:.0f}" if isinstance(x, (int, float)) else x), "\n")
+    
+
+# Helper function to create a layout based on community structure
+def community_layout(G, partition, scale=3.0, seed=42):
+    """
+    Creates a layout where communities are positioned in separate clusters.
+    
+    `partition` is a dict: node -> community_id
+    """
+    comms = list(set(partition.values()))
+    num_comms = len(comms)
+
+    angle_step = 2 * np.pi / num_comms
+    community_centers = {
+        c: np.array([scale * np.cos(i*angle_step),
+                     scale * np.sin(i*angle_step)])
+        for i, c in enumerate(comms)
+    }
+
+    pos = {}
+    for c in comms:
+        nodes_in_c = [n for n in G.nodes() if partition[n] == c]
+        subG = G.subgraph(nodes_in_c)
+        # Base layout for internal structure
+        internal_pos = nx.spring_layout(subG, seed=seed)
+        
+        # Shift community to its center
+        center = community_centers[c]
+        for n in nodes_in_c:
+            pos[n] = internal_pos[n] + center
+    return pos
+
+
+def visualize_communities(
+    G,
+    method="leiden",        # "leiden", "louvain", or "spectral"
+    resolution=1.0,         # Leiden/Louvain resolution
+    k=4,                    # Number of clusters for spectral
+    seed=42):
+    """
+    Detects and visualizes graph communities using Leiden, Louvain, or Spectral Clustering.
+    Requires: run_leiden(), community_layout(), generic_show().
+    """
+
+    if method.lower() == "leiden":
+        communities = run_leiden(G, resolution=resolution, seed=seed)
+        print(f"Detected {len(communities)} communities using Leiden with resolution {resolution}.")
+
+    elif method.lower() == "louvain":
+        partition = community_louvain.best_partition(G, resolution=resolution, random_state=seed)
+        print(f"Detected {len(set(partition.values()))} communities using Louvain with resolution {resolution}.")
+
+        # Convert dict to list of node sets
+        communities = []
+        for comm_id in set(partition.values()):
+            communities.append({n for n, c in partition.items() if c == comm_id})
+
+    elif method.lower() == "spectral":
+        A = nx.to_numpy_array(G)
+        sc = SpectralClustering(n_clusters=k, assign_labels="kmeans", random_state=seed)
+        labels = sc.fit_predict(A)
+
+        # Convert labels to node sets
+        nodes = list(G.nodes())
+        communities = []
+        for cid in range(k):
+            communities.append({nodes[i] for i, lab in enumerate(labels) if lab == cid})
+
+    else:
+        raise ValueError("method must be: 'leiden', 'louvain', or 'spectral'")
+
+    # From node build community mapping
+    node_to_comm = {}
+    for cid, nodes in enumerate(communities):
+        for n in nodes:
+            node_to_comm[n] = cid
+
+    num_comms = len(communities)
+    cmap = cm.get_cmap("tab20", num_comms)
+
+    def get_color(cid):
+        return colors.to_hex(cmap(cid))
+
+    for n in G.nodes():
+        G.nodes[n]["color"] = get_color(node_to_comm[n])
+        G.nodes[n]["tooltip"] = f"Node {n}, Community {node_to_comm[n]}"
+
+    generic_show(
+        graph=G,
+        node_color="color",
+        node_size=25,
+        node_tooltip="tooltip",
+        k_core=1,
+        layout_func=lambda G: community_layout(G, node_to_comm)
+    )
