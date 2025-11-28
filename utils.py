@@ -235,3 +235,45 @@ def calculate_centrality_metrics(graph, centrality_funcs):
 
     final_columns = ['ground_truth'] + centrality_names
     return df[final_columns].rename(columns={'ground_truth': 'Ground Truth'})
+
+
+def visualize_top_n_centrality(df, centrality_measure, top_n=20):
+    if centrality_measure not in df.columns:
+        print(f"Error: '{centrality_measure}' not found in DataFrame columns.")
+        return
+
+    centrality_cols = [col for col in df.columns if col != 'Ground Truth']
+    rank_df = pd.DataFrame(index=df.index)
+    for col in centrality_cols:
+        rank_df[col] = df[col].rank(ascending=False, method='min').astype(int)
+
+    top_n_ranked_df = rank_df.sort_values(by=centrality_measure, ascending=True).head(top_n)
+
+    top_n_ground_truth = df.loc[top_n_ranked_df.index]['Ground Truth']
+
+    y_labels = [f"Node {node} (Dept {gt})"
+                for i, (node, gt) in enumerate(top_n_ground_truth.items())]
+
+    diff_df = pd.DataFrame(index=top_n_ranked_df.index)
+    for col in centrality_cols:
+        diff_df[col] = top_n_ranked_df[col] - top_n_ranked_df[centrality_measure]
+    
+    x_labels = [col.replace('_', '\n') for col in centrality_cols]
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(
+        data=diff_df[centrality_cols],
+        annot=top_n_ranked_df[centrality_cols],
+        cmap='coolwarm',
+        yticklabels=y_labels,
+        fmt='d',
+        xticklabels=x_labels,
+        linewidths=.5,
+        center = 0
+    )
+    plt.title(
+        f'Centrality Measures Rank Comparison for Top {top_n} Nodes, ordered by {centrality_measure.capitalize()}\n'
+        f'(Color shows rank difference from {centrality_measure.capitalize()})',
+        fontsize=16
+    )
+    plt.show()
