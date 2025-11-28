@@ -178,6 +178,9 @@ def summary_stats(graph):
     print(f"Average degree: {avg_degree:.2f}")
     print(f"Density: {nx.density(graph):.4f}")
 
+    avg_clustering = nx.average_clustering(graph)
+    print(f"Average clustering coefficient: {avg_clustering:.4f}")
+
     if nx.is_connected(graph):
         print("Graph is connected.")
         print(f"Radius: {nx.radius(graph)}")
