@@ -10,7 +10,7 @@ from matplotlib.ticker import MaxNLocator
 from IPython.display import Markdown, display
 
 alt.data_transformers.enable("vegafusion")
-from itertools import groupby
+from itertools import groupby, zip_longest
 
 
 def generic_show(graph, node_color, node_size, node_tooltip, k_core=3, layout_func=nx.spring_layout, width=400, height=400):
@@ -30,6 +30,7 @@ def generic_show(graph, node_color, node_size, node_tooltip, k_core=3, layout_fu
 
 
 def show_mail_graph(G, k_core=3):
+    enrich_graph_with_centrality(G, [nx.degree])
     generic_show(G, 'ground_truth', 'degree', ['ground_truth'], k_core=k_core)
 
 
@@ -61,8 +62,6 @@ def load_email(directed=False):
 
     isolates = list(nx.isolates(G))
     G.remove_nodes_from(isolates)
-    for n in G.nodes():
-        G.nodes[n]['degree'] = G.degree[n]
 
     return G
 
@@ -180,6 +179,9 @@ def summary_stats(graph):
     print(f"Average degree: {avg_degree:.2f}")
     print(f"Density: {nx.density(graph):.4f}")
 
+    avg_clustering = nx.average_clustering(graph)
+    print(f"Average clustering coefficient: {avg_clustering:.4f}")
+
     if nx.is_connected(graph):
         print("Graph is connected.")
         print(f"Radius: {nx.radius(graph)}")
@@ -195,7 +197,6 @@ def summary_stats(graph):
         print(f"  - Radius: {nx.radius(subgraph)}")
         print(f"  - Diameter: {nx.diameter(subgraph)}")
         print(f"  - Average shortest path length: {nx.average_shortest_path_length(subgraph):.2f}")
-    print(f"Avg clustering: {nx.average_clustering(graph):.2f}")
 
 def load_twitch_user_attributes(G):
     df = pd.read_csv("data/musae_PTBR_target.csv")
@@ -397,3 +398,106 @@ def compare_centralities_with_attributes(G):
     sns.heatmap(corr, annot=True, cmap="Blues", linewidths=0.5)
     plt.title("Correlation Analysis", fontsize=12)
     plt.show()
+
+
+def enrich_graph_with_centrality(graph, centrality_funcs):
+    if not graph:
+        print("Graph is empty, returning.")
+        return graph
+
+    first_node = next(iter(graph.nodes()))
+
+    for func in centrality_funcs:
+        attribute_name = func.__name__
+
+        if attribute_name in graph.nodes[first_node]:
+            print(f"Skipping '{attribute_name}': attribute already exists.")
+            continue
+
+        print(f"Calculating and adding node attribute '{attribute_name}'...")
+        scores = func(graph)
+        nx.set_node_attributes(graph, dict(scores), attribute_name)
+
+    return graph
+
+
+def calculate_centrality_metrics(graph, centrality_funcs):
+    enriched_graph = enrich_graph_with_centrality(graph, centrality_funcs)
+
+    centrality_names = [func.__name__ for func in centrality_funcs]
+    columns_to_include = ['ground_truth'] + centrality_names
+
+    data = []
+    for node, attrs in enriched_graph.nodes(data=True):
+        node_data = {'Node': node}
+        for col in columns_to_include:
+            node_data[col] = attrs.get(col)
+        data.append(node_data)
+
+    df = pd.DataFrame(data)
+
+    final_columns = ['ground_truth'] + centrality_names
+    return df[final_columns].rename(columns={'ground_truth': 'Ground Truth'})
+
+
+def visualize_top_n_centrality(df, centrality_measure, top_n=20, centralities_to_show=None):
+    if centrality_measure not in df.columns:
+        print(f"Error: '{centrality_measure}' not found in DataFrame columns.")
+        return
+
+    if centralities_to_show:
+        centrality_cols = list(centralities_to_show)
+    else:
+        centrality_cols = [col for col in df.columns if col != 'Ground Truth']
+
+    rank_df = pd.DataFrame(index=df.index)
+    for col in centrality_cols:
+        rank_df[col] = df[col].rank(ascending=False, method='min').astype(int)
+
+    top_n_ranked_df = rank_df.sort_values(by=centrality_measure, ascending=True).head(top_n)
+
+    top_n_ground_truth = df.loc[top_n_ranked_df.index]['Ground Truth']
+
+    y_labels = [f"Node {node} (Dept {gt})"
+                for i, (node, gt) in enumerate(top_n_ground_truth.items())]
+
+    diff_df = pd.DataFrame(index=top_n_ranked_df.index)
+    for col in centrality_cols:
+        diff_df[col] = top_n_ranked_df[col] - top_n_ranked_df[centrality_measure]
+    
+    x_labels = [col.replace('_', '\n') for col in centrality_cols]
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(
+        data=diff_df[centrality_cols],
+        annot=top_n_ranked_df[centrality_cols],
+        cmap='coolwarm',
+        yticklabels=y_labels,
+        fmt='d',
+        xticklabels=x_labels,
+        linewidths=.5,
+        center = 0
+    )
+    plt.title(
+        f'Centrality Measures Rank Comparison for Top {top_n} Nodes, ordered by {centrality_measure.capitalize()}\n'
+        f'(Color shows rank difference from {centrality_measure.capitalize()})',
+        fontsize=16
+    )
+    plt.show()
+
+
+def show_top_nodes_by_centrality(df, centrality_measure, top_n=20):
+    if centrality_measure not in df.columns:
+        print(f"Error: '{centrality_measure}' not found in DataFrame columns.")
+        return
+
+    display_df = df.reset_index().rename(columns={'index': 'Node'})
+
+    top_nodes = display_df.sort_values(by=centrality_measure, ascending=False).head(top_n)
+
+    columns_to_show = ['Node', 'Ground Truth', centrality_measure]
+    top_nodes_display = top_nodes[columns_to_show]
+
+    return top_nodes_display.style.set_caption(
+        f"Top {top_n} Nodes by {centrality_measure.replace('_', ' ').capitalize()}"
+    ).background_gradient(cmap='viridis', subset=[centrality_measure])
