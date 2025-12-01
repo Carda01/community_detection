@@ -956,3 +956,89 @@ def visualize_communities(
             k_core=1,
             layout_func=lambda graph: pos
         )
+
+def optimize_community_detection(G, algorithm_name, param_range, ground_truth=None):
+    """
+    Runs a grid search for a specific community detection algorithm.
+    """
+    results = []
+    print(f"--- Optimizing {algorithm_name} ---")
+    
+    start_time = time.time()
+    
+    for param in param_range:
+        try:
+            # 1. Run Algorithm
+            if algorithm_name == "louvain":
+                # Louvain is built-in to NetworkX
+                comms = nx.community.louvain_communities(G, resolution=param, seed=42)
+            
+            elif algorithm_name == "leiden":
+                # Assuming run_leiden is defined above in this utils file
+                comms = run_leiden(G, resolution=param)
+            
+            elif algorithm_name == "spectral":
+                k = int(param)
+                # Convert to sparse matrix for Scikit-Learn
+                adj = nx.to_scipy_sparse_array(G, format='csr')
+                adj.indices = adj.indices.astype(np.int32)
+                adj.indptr = adj.indptr.astype(np.int32)
+                
+                # Spectral Clustering execution
+                sc = SpectralClustering(n_clusters=k, affinity='precomputed', 
+                                      assign_labels='discretize', random_state=42, n_init=10)
+                labels = sc.fit_predict(adj)
+                
+                # Convert labels to list of sets
+                d = defaultdict(set)
+                for node, label in zip(G.nodes(), labels): 
+                    d[label].add(node)
+                comms = list(d.values())
+            else:
+                continue
+
+            # 2. Calculate Metrics (Assuming metric functions are defined above)
+            cond = metric_avg_conductance(G, comms)
+            dens = metric_internal_density(G, comms)
+            cov = metric_coverage(G, comms)
+            
+            # Composite Score calculation
+            composite_score = (0.4 * (1 - cond)) + (0.3 * dens) + (0.3 * cov)
+            
+            # ARI (if ground truth is provided)
+            ari = metric_ari(G, comms, ground_truth) if ground_truth else None
+            
+            results.append({
+                "Algorithm": algorithm_name.capitalize(),
+                "Param": param,
+                "Communities": len(comms),
+                "Composite_Score": composite_score,
+                "Conductance": cond,
+                "Density": dens,
+                "Coverage": cov,
+                "ARI": ari
+            })
+
+        except Exception as e:
+            # Helpful for debugging grid searches without crashing the whole loop
+            print(f"Failed at param {param}: {e}")
+            continue
+
+    end_time = time.time()
+    duration = end_time - start_time
+    print(f"{algorithm_name} finished in {duration:.2f} seconds.")
+
+    return pd.DataFrame(results)
+
+def get_best_granular_model(df, min_communities=5):
+    """
+    Selects the best model based on Composite Score, strictly filtering 
+    for a minimum number of communities to avoid trivial partitions.
+    """
+    granular_df = df[df['Communities'] >= min_communities].copy()
+    
+    # Fallback: if no model meets the min_communities requirement, return the absolute best
+    if granular_df.empty: 
+        return df.loc[df['Composite_Score'].idxmax()]
+        
+    return granular_df.loc[granular_df['Composite_Score'].idxmax()]
