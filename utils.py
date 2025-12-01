@@ -13,6 +13,12 @@ import matplotlib.colors as colors
 import numpy as np
 import community as community_louvain
 from sklearn.cluster import SpectralClustering
+from statistics import median
+from matplotlib.colors import LinearSegmentedColormap
+from collections import defaultdict
+import time
+
+
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
 
@@ -285,7 +291,7 @@ def summary_stats(graph):
 
 def visualize_static_entire_graph(G, node_size=15):
     pos = nx.spring_layout(G, k=2, iterations=400, seed=42)
-    plt.figure(figsize=(14, 14))
+    plt.figure(figsize=(9, 8))
     nx.draw(G, pos,
             node_size=node_size,
             edge_color="gray",
@@ -401,7 +407,7 @@ def show_top_nodes_by_centrality(df, centrality_measure, top_n=20):
 # ---------------------------Twitch Specific Functions ---------------------------
 
 def load_twitch_user_attributes(G):
-    df = pd.read_csv("data/musae_PTBR_target.csv")
+    df = pd.read_csv("twitch_data/musae_PTBR_target.csv")
     attr_dict = {
         row["new_id"]: {
             "id": row["new_id"],
@@ -417,6 +423,39 @@ def load_twitch_user_attributes(G):
                                             "views": "total_views", "partner": "is_partner"}).copy()
     nx.set_node_attributes(G, attr_dict)
     return G, df
+
+def hist_degrees_cliques_computed(graph):
+    degrees = [d for _, d in graph.degree()]
+
+    clique_sizes = [len(c) for c in nx.find_cliques(graph)]
+
+    # --- Plotting ---
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    sns.set_theme(style="whitegrid")
+
+    # Degree distribution
+    sns.histplot(degrees, kde=True, ax=ax1, color='skyblue', bins='auto')
+    ax1.set_title('Degree Distribution', fontsize=16)
+    ax1.set_xlabel('Degree', fontsize=12)
+    ax1.set_ylabel('Frequency', fontsize=12)
+
+    # Clique size distribution
+    sns.histplot(
+        clique_sizes,
+        kde=True,
+        ax=ax2,
+        color='salmon',
+        discrete=True,
+        kde_kws={'bw_adjust': 2}
+    )
+    ax2.set_title('Clique Size (k) Distribution', fontsize=16)
+    ax2.set_xlabel('Clique Size (k)', fontsize=12)
+    ax2.set_ylabel('Frequency', fontsize=12)
+
+    ax2.xaxis.set_major_locator(MaxNLocator(integer=True))
+
+    plt.tight_layout()
+    plt.show()
 
 
 # Compare centrality measures with twitch user attributes
@@ -449,9 +488,56 @@ def compare_centralities_with_attributes(G):
     plt.title("Correlation Analysis", fontsize=12)
     plt.show()
 
+def draw_static_centrality_plot(G, pos, measure):
+    """
+    Static matplotlib plot:
+    - node color = centrality value (white → blue colormap)
+    - node size  = centrality value scaled
+    """
 
-def visualize_centrality(G, measure="degree", k_core=3, layout_func=nx.spring_layout):
+    sizes  = [G.nodes[n]["centrality_size"] for n in G.nodes()]
+    values = [G.nodes[n][measure] for n in G.nodes()]
+
+    plt.figure(figsize=(8, 7))
+
+    white_to_blue = LinearSegmentedColormap.from_list(
+        "white_to_blue", ["#ffffff", "#b3d9ff", "#0066cc"]
+    )
+
+    # Draw nodes
+    nodes = nx.draw_networkx_nodes(
+        G,
+        pos,
+        node_size=sizes,
+        node_color=values,
+        cmap=white_to_blue,
+        linewidths=0.2,
+        edgecolors="black"
+    )
+
+    nx.draw_networkx_edges(
+        G,
+        pos,
+        width=0.3,
+        alpha=0.03
+    )
+    cbar = plt.colorbar(nodes, shrink=0.6)   # shrink makes it smaller
+    cbar.set_label(f"{measure} centrality")
+    plt.margins(0.05)
+    plt.tight_layout()
+
+    plt.axis("off")
+    plt.title(f"Centrality measure: {measure}")
+    plt.show()
+
+
+def visualize_centrality(
+    G,
+    measure="degree",
+    layout_func=nx.spring_layout
+):
     H = G.copy()
+
     if measure == "degree":
         centrality = nx.degree_centrality(H)
         raw_degree = dict(H.degree())
@@ -471,6 +557,7 @@ def visualize_centrality(G, measure="degree", k_core=3, layout_func=nx.spring_la
         raise ValueError("Unknown centrality measure")
 
     nx.set_node_attributes(H, centrality, name=measure)
+    # Node size scaling
     max_val = max(centrality.values())
     scaled_size = {n: (centrality[n] / max_val) * 40 for n in H.nodes()}
     nx.set_node_attributes(H, scaled_size, name="centrality_size")
@@ -500,14 +587,9 @@ def visualize_centrality(G, measure="degree", k_core=3, layout_func=nx.spring_la
         else:
             H.nodes[node]["_tooltip"] = f"id={node} | {measure}={centrality[node]:.5f}"
 
-    generic_show(
-        graph=H,
-        node_color=measure,
-        node_size="centrality_size",
-        node_tooltip=["_tooltip"],
-        k_core=k_core,
-        layout_func=layout_func
-    )
+    pos = layout_func(H)
+
+    draw_static_centrality_plot(H, pos, measure)
 
 
 def twitch_user_exploratory_analysis(df):    
@@ -626,16 +708,113 @@ def community_layout(G, partition, scale=3.0, seed=42):
     return pos
 
 
+def print_community_statistics(G, communities):
+    """
+    Print a clean table of per-community statistics.
+    Includes: num_nodes, % mature, % partner, median views, avg views,
+              median age_days, avg age_days
+    """
+
+    rows = []
+    for cid, nodes in enumerate(communities):
+        node_list = list(nodes)
+
+        # Extract attributes
+        mature_flags  = [G.nodes[n].get("is_mature", False) for n in node_list]
+        partner_flags = [G.nodes[n].get("is_partner", False) for n in node_list]
+        views         = [G.nodes[n].get("total_views", 0) for n in node_list]
+        ages          = [G.nodes[n].get("account_age_days", 0) for n in node_list]
+
+        num_nodes = len(node_list)
+
+        pct_mature  = 100 * (sum(mature_flags)  / num_nodes if num_nodes else 0)
+        pct_partner = 100 * (sum(partner_flags) / num_nodes if num_nodes else 0)
+
+        med_views = median(views) if views else 0
+        avg_views = sum(views) / num_nodes if num_nodes else 0
+
+        med_age   = median(ages) if ages else 0
+        avg_age   = sum(ages) / num_nodes if num_nodes else 0
+
+        rows.append([
+            cid,
+            num_nodes,
+            f"{pct_mature:.1f}%",
+            f"{pct_partner:.1f}%",
+            med_views,
+            f"{avg_views:.1f}",
+            med_age,
+            f"{avg_age:.1f}",
+        ])
+
+    headers = [
+        "community",
+        "num_nodes",
+        "% mature",
+        "% partner",
+        "median_views",
+        "avg_views",
+        "median_age_days",
+        "avg_age_days"
+    ]
+
+    print("\n=== COMMUNITY STATISTICS TABLE ===")
+    try:
+        from tabulate import tabulate
+        print(tabulate(rows, headers=headers, tablefmt="pretty"))
+    except ImportError:
+        # Fallback text table
+        col_widths = [max(len(str(val)) for val in col) for col in zip(*([headers] + rows))]
+        fmt = " | ".join("{:<" + str(w) + "}" for w in col_widths)
+        print(fmt.format(*headers))
+        print("-" * (sum(col_widths) + 3 * (len(col_widths) - 1)))
+        for r in rows:
+            print(fmt.format(*r))
+
+
+def draw_static_community_plot(G, pos):
+    plt.figure(figsize=(10, 8))
+    # Draw nodes by community
+    communities = {}
+    for n, d in G.nodes(data=True):
+        cid = d["community"]
+        communities.setdefault(cid, []).append(n)
+
+    for cid, nodes in communities.items():
+        color = G.nodes[nodes[0]]["color"]
+        nx.draw_networkx_nodes(
+            G,
+            pos,
+            nodelist=nodes,
+            node_color=color,
+            label=f"Community {cid}",
+            node_size=40,
+            edgecolors="black",
+            linewidths=0.5
+        )
+
+    nx.draw_networkx_edges(G, pos, width=0.3, alpha=0.3)
+    plt.axis("off")
+    plt.legend(
+        title="Communities",
+        loc="lower right",
+        bbox_to_anchor=(1, 0),
+        frameon=True,
+        fontsize=8,    
+        title_fontsize=9,
+        markerscale=0.6,    
+        handlelength=1.0,  
+    )
+    plt.show()
+
+
 def visualize_communities(
     G,
-    method="leiden",        # "leiden", "louvain", or "spectral"
-    resolution=1.0,         # Leiden/Louvain resolution
-    k=4,                    # Number of clusters for spectral
-    seed=42):
-    """
-    Detects and visualizes graph communities using Leiden, Louvain, or Spectral Clustering.
-    Requires: run_leiden(), community_layout(), generic_show().
-    """
+    method="leiden",
+    resolution=1.0,
+    k=4,
+    seed=42,
+    static=True):
 
     if method.lower() == "leiden":
         communities = run_leiden(G, resolution=resolution, seed=seed)
@@ -644,27 +823,21 @@ def visualize_communities(
     elif method.lower() == "louvain":
         partition = community_louvain.best_partition(G, resolution=resolution, random_state=seed)
         print(f"Detected {len(set(partition.values()))} communities using Louvain with resolution {resolution}.")
-
-        # Convert dict to list of node sets
         communities = []
         for comm_id in set(partition.values()):
             communities.append({n for n, c in partition.items() if c == comm_id})
 
     elif method.lower() == "spectral":
         A = nx.to_numpy_array(G)
-        sc = SpectralClustering(n_clusters=k, assign_labels="kmeans", random_state=seed)
+        sc = SpectralClustering(n_clusters=k, assign_labels="kmeans", random_state=seed, affinity='nearest_neighbors', n_neighbors=10)
         labels = sc.fit_predict(A)
-
-        # Convert labels to node sets
         nodes = list(G.nodes())
         communities = []
         for cid in range(k):
             communities.append({nodes[i] for i, lab in enumerate(labels) if lab == cid})
-
     else:
         raise ValueError("method must be: 'leiden', 'louvain', or 'spectral'")
-
-    # From node build community mapping
+    # Community lookup build
     node_to_comm = {}
     for cid, nodes in enumerate(communities):
         for n in nodes:
@@ -676,15 +849,28 @@ def visualize_communities(
     def get_color(cid):
         return colors.to_hex(cmap(cid))
 
+    # Assign node attributes (color, label, tooltip)
     for n in G.nodes():
-        G.nodes[n]["color"] = get_color(node_to_comm[n])
-        G.nodes[n]["tooltip"] = f"Node {n}, Community {node_to_comm[n]}"
+        cid = node_to_comm[n]
+        color_hex = get_color(cid)
 
-    generic_show(
-        graph=G,
-        node_color="color",
-        node_size=25,
-        node_tooltip="tooltip",
-        k_core=1,
-        layout_func=lambda G: community_layout(G, node_to_comm)
-    )
+        G.nodes[n]["community"]   = str(cid)
+        G.nodes[n]["color"]       = color_hex
+        G.nodes[n]["color_label"] = f"Community {cid}"
+        G.nodes[n]["tooltip"]     = f"Node {n}, Community {cid}"
+
+    print_community_statistics(G, communities)
+
+    pos = community_layout(G, node_to_comm)
+    if static:
+        draw_static_community_plot(G, pos)
+    else:
+        generic_show(
+            graph=G,
+            node_color="color_label",
+            node_size=25,
+            node_tooltip="tooltip",
+            k_core=1,
+            layout_func=lambda graph: pos
+        )
+
