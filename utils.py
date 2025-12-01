@@ -74,8 +74,7 @@ def download_data(folder_name, base_url, files, category):
                             dest_path = os.path.join(target_dir, target_file)
                             with open(dest_path, "wb") as f_out:
                                 shutil.copyfileobj(source, f_out)
-            os.remove(dest_zip)
-
+            #os.remove(dest_zip)
         print("Twitch PTBR files downloaded and extracted successfully.")
 
 
@@ -460,7 +459,7 @@ def show_top_nodes_by_centrality(df, centrality_measure, top_n=20):
 # ---------------------------Twitch Specific Functions ---------------------------
 
 def load_twitch_user_attributes(G):
-    df = pd.read_csv("twitch_data/musae_PTBR_target.csv")
+    df = pd.read_csv("data/twitch/musae_PTBR_target.csv")
     attr_dict = {
         row["new_id"]: {
             "id": row["new_id"],
