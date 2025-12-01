@@ -866,22 +866,29 @@ def visualize_communities(
     resolution=1.0,
     k=4,
     seed=42,
-    static=True):
+    static=True,
+    dataset_name="twitch",
+    n_neighbors=10
+):
 
     if method.lower() == "leiden":
         communities = run_leiden(G, resolution=resolution, seed=seed)
         print(f"Detected {len(communities)} communities using Leiden with resolution {resolution}.")
 
     elif method.lower() == "louvain":
-        partition = community_louvain.best_partition(G, resolution=resolution, random_state=seed)
-        print(f"Detected {len(set(partition.values()))} communities using Louvain with resolution {resolution}.")
-        communities = []
-        for comm_id in set(partition.values()):
-            communities.append({n for n, c in partition.items() if c == comm_id})
+        partition = nx.community.louvain_communities(G, resolution=resolution, seed=seed)
+        print(f"Detected {len(partition)} communities using Louvain with resolution {resolution}.")
+        communities = partition
 
     elif method.lower() == "spectral":
         A = nx.to_numpy_array(G)
-        sc = SpectralClustering(n_clusters=k, assign_labels="kmeans", random_state=seed, affinity='nearest_neighbors', n_neighbors=10)
+        sc = SpectralClustering(
+            n_clusters=k, 
+            assign_labels="kmeans", 
+            random_state=seed, 
+            affinity='nearest_neighbors', 
+            n_neighbors=n_neighbors 
+        )
         labels = sc.fit_predict(A)
         nodes = list(G.nodes())
         communities = []
@@ -889,29 +896,53 @@ def visualize_communities(
             communities.append({nodes[i] for i, lab in enumerate(labels) if lab == cid})
     else:
         raise ValueError("method must be: 'leiden', 'louvain', or 'spectral'")
+
     # Community lookup build
     node_to_comm = {}
     for cid, nodes in enumerate(communities):
         for n in nodes:
             node_to_comm[n] = cid
 
+    comm_sizes = {cid: len(nodes) for cid, nodes in enumerate(communities)}
     num_comms = len(communities)
     cmap = cm.get_cmap("tab20", num_comms)
 
     def get_color(cid):
         return colors.to_hex(cmap(cid))
 
-    # Assign node attributes (color, label, tooltip)
+    # Assign node attributes
     for n in G.nodes():
         cid = node_to_comm[n]
         color_hex = get_color(cid)
+        size = comm_sizes[cid]
 
         G.nodes[n]["community"]   = str(cid)
         G.nodes[n]["color"]       = color_hex
-        G.nodes[n]["color_label"] = f"Community {cid}"
-        G.nodes[n]["tooltip"]     = f"Node {n}, Community {cid}"
+        
+        if dataset_name.lower() == "email":
+            label_text = f"Community {cid} | {size} nodes"
+            tooltip_text = f"Node {n}, Comm {cid} ({size} members)"
+        else:
+            label_text = f"Community {cid}"
+            tooltip_text = f"Node {n}, Community {cid}"
 
-    print_community_statistics(G, communities)
+        G.nodes[n]["color_label"] = label_text
+        G.nodes[n]["tooltip"]     = tooltip_text
+
+    # --- CONDITIONAL PRINTING LOGIC ---
+    if dataset_name.lower() == "email":
+        print("\n=== COMMUNITY STATISTICS (EMAIL) ===")
+        # Print only Community ID and Num Nodes
+        print(f"{'community':<15} | {'num_nodes':<15}")
+        print("-" * 33)
+        # Sort by community ID for cleaner output
+        sorted_stats = sorted(comm_sizes.items()) 
+        for cid, size in sorted_stats:
+            print(f"{cid:<15} | {size:<15}")
+    else:
+        # Fallback to the full function for Twitch
+        print_community_statistics(G, communities)
+    # ----------------------------------
 
     pos = community_layout(G, node_to_comm)
     if static:
@@ -925,4 +956,3 @@ def visualize_communities(
             k_core=1,
             layout_func=lambda graph: pos
         )
-
