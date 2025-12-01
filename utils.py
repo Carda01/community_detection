@@ -13,6 +13,8 @@ import matplotlib.colors as colors
 import numpy as np
 import community as community_louvain
 from sklearn.cluster import SpectralClustering
+from statistics import median
+
 
 
 
@@ -549,16 +551,75 @@ def community_layout(G, partition, scale=3.0, seed=42):
     return pos
 
 
+def print_community_statistics(G, communities):
+    """
+    Print a clean table of per-community statistics.
+    Includes: num_nodes, % mature, % partner, median views, avg views,
+              median age_days, avg age_days
+    """
+
+    rows = []
+    for cid, nodes in enumerate(communities):
+        node_list = list(nodes)
+
+        # Extract attributes
+        mature_flags  = [G.nodes[n].get("is_mature", False) for n in node_list]
+        partner_flags = [G.nodes[n].get("is_partner", False) for n in node_list]
+        views         = [G.nodes[n].get("total_views", 0) for n in node_list]
+        ages          = [G.nodes[n].get("account_age_days", 0) for n in node_list]
+
+        num_nodes = len(node_list)
+
+        pct_mature  = 100 * (sum(mature_flags)  / num_nodes if num_nodes else 0)
+        pct_partner = 100 * (sum(partner_flags) / num_nodes if num_nodes else 0)
+
+        med_views = median(views) if views else 0
+        avg_views = sum(views) / num_nodes if num_nodes else 0
+
+        med_age   = median(ages) if ages else 0
+        avg_age   = sum(ages) / num_nodes if num_nodes else 0
+
+        rows.append([
+            cid,
+            num_nodes,
+            f"{pct_mature:.1f}%",
+            f"{pct_partner:.1f}%",
+            med_views,
+            f"{avg_views:.1f}",
+            med_age,
+            f"{avg_age:.1f}",
+        ])
+
+    headers = [
+        "community",
+        "num_nodes",
+        "% mature",
+        "% partner",
+        "median_views",
+        "avg_views",
+        "median_age_days",
+        "avg_age_days"
+    ]
+
+    print("\n=== COMMUNITY STATISTICS TABLE ===")
+    try:
+        from tabulate import tabulate
+        print(tabulate(rows, headers=headers, tablefmt="pretty"))
+    except ImportError:
+        # Fallback text table
+        col_widths = [max(len(str(val)) for val in col) for col in zip(*([headers] + rows))]
+        fmt = " | ".join("{:<" + str(w) + "}" for w in col_widths)
+        print(fmt.format(*headers))
+        print("-" * (sum(col_widths) + 3 * (len(col_widths) - 1)))
+        for r in rows:
+            print(fmt.format(*r))
+
 def visualize_communities(
     G,
-    method="leiden",        # "leiden", "louvain", or "spectral"
-    resolution=1.0,         # Leiden/Louvain resolution
-    k=4,                    # Number of clusters for spectral
+    method="leiden",
+    resolution=1.0,
+    k=4,
     seed=42):
-    """
-    Detects and visualizes graph communities using Leiden, Louvain, or Spectral Clustering.
-    Requires: run_leiden(), community_layout(), generic_show().
-    """
 
     if method.lower() == "leiden":
         communities = run_leiden(G, resolution=resolution, seed=seed)
@@ -567,8 +628,6 @@ def visualize_communities(
     elif method.lower() == "louvain":
         partition = community_louvain.best_partition(G, resolution=resolution, random_state=seed)
         print(f"Detected {len(set(partition.values()))} communities using Louvain with resolution {resolution}.")
-
-        # Convert dict to list of node sets
         communities = []
         for comm_id in set(partition.values()):
             communities.append({n for n, c in partition.items() if c == comm_id})
@@ -577,8 +636,6 @@ def visualize_communities(
         A = nx.to_numpy_array(G)
         sc = SpectralClustering(n_clusters=k, assign_labels="kmeans", random_state=seed)
         labels = sc.fit_predict(A)
-
-        # Convert labels to node sets
         nodes = list(G.nodes())
         communities = []
         for cid in range(k):
@@ -587,7 +644,8 @@ def visualize_communities(
     else:
         raise ValueError("method must be: 'leiden', 'louvain', or 'spectral'")
 
-    # From node build community mapping
+
+    # Community lookup build
     node_to_comm = {}
     for cid, nodes in enumerate(communities):
         for n in nodes:
@@ -599,15 +657,24 @@ def visualize_communities(
     def get_color(cid):
         return colors.to_hex(cmap(cid))
 
+    # Assign node attributes (color, label, tooltip)
     for n in G.nodes():
-        G.nodes[n]["color"] = get_color(node_to_comm[n])
-        G.nodes[n]["tooltip"] = f"Node {n}, Community {node_to_comm[n]}"
+        cid = node_to_comm[n]
+        color_hex = get_color(cid)
+
+        G.nodes[n]["community"]   = str(cid)
+        G.nodes[n]["color"]       = color_hex
+        G.nodes[n]["color_label"] = f"Community {cid}"
+        G.nodes[n]["tooltip"]     = f"Node {n}, Community {cid}"
+
+    print_community_statistics(G, communities)
 
     generic_show(
         graph=G,
-        node_color="color",
+        node_color="color_label",
         node_size=25,
         node_tooltip="tooltip",
         k_core=1,
-        layout_func=lambda G: community_layout(G, node_to_comm)
+        layout_func=lambda graph: community_layout(graph, node_to_comm)
     )
+
