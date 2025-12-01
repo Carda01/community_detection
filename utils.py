@@ -752,7 +752,7 @@ def visualize_communities(
 
     elif method.lower() == "spectral":
         A = nx.to_numpy_array(G)
-        sc = SpectralClustering(n_clusters=k, assign_labels="kmeans", random_state=seed)
+        sc = SpectralClustering(n_clusters=k, assign_labels="kmeans", random_state=seed, affinity='nearest_neighbors', n_neighbors=10)
         labels = sc.fit_predict(A)
         nodes = list(G.nodes())
         communities = []
