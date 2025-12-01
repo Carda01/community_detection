@@ -614,12 +614,53 @@ def print_community_statistics(G, communities):
         for r in rows:
             print(fmt.format(*r))
 
+
+def draw_static_community_plot(G, pos):
+    plt.figure(figsize=(10, 8))
+
+    # Draw nodes by community
+    communities = {}
+    for n, d in G.nodes(data=True):
+        cid = d["community"]
+        communities.setdefault(cid, []).append(n)
+
+    for cid, nodes in communities.items():
+        color = G.nodes[nodes[0]]["color"]
+        nx.draw_networkx_nodes(
+            G,
+            pos,
+            nodelist=nodes,
+            node_color=color,
+            label=f"Community {cid}",
+            node_size=40,
+            edgecolors="black",
+            linewidths=0.5
+        )
+
+    # Draw edges
+    nx.draw_networkx_edges(G, pos, width=0.3, alpha=0.3)
+    plt.axis("off")
+    plt.legend(
+        title="Communities",
+        loc="lower right",
+        bbox_to_anchor=(1, 0),
+        frameon=True,
+        fontsize=8,         # smaller text
+        title_fontsize=9,   # slightly larger title
+        markerscale=0.6,    # shrink node markers in legend
+        handlelength=1.0,   # shrink spacing
+    )
+    plt.show()
+
+
+
 def visualize_communities(
     G,
     method="leiden",
     resolution=1.0,
     k=4,
-    seed=42):
+    seed=42,
+    static=True):
 
     if method.lower() == "leiden":
         communities = run_leiden(G, resolution=resolution, seed=seed)
@@ -669,12 +710,16 @@ def visualize_communities(
 
     print_community_statistics(G, communities)
 
-    generic_show(
-        graph=G,
-        node_color="color_label",
-        node_size=25,
-        node_tooltip="tooltip",
-        k_core=1,
-        layout_func=lambda graph: community_layout(graph, node_to_comm)
-    )
+    pos = community_layout(G, node_to_comm)
+    if static:
+        draw_static_community_plot(G, pos)
+    else:
+        generic_show(
+            graph=G,
+            node_color="color_label",
+            node_size=25,
+            node_tooltip="tooltip",
+            k_core=1,
+            layout_func=lambda graph: pos
+        )
 
