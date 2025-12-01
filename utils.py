@@ -17,14 +17,67 @@ from statistics import median
 from matplotlib.colors import LinearSegmentedColormap
 from collections import defaultdict
 import time
-
-
+from itertools import groupby
+import os
+import urllib.request
+import gzip
+import shutil
+import zipfile
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
-
-
 alt.data_transformers.enable("vegafusion")
-from itertools import groupby, zip_longest
+
+def download_data(folder_name, base_url, files, category):
+    os.makedirs("data", exist_ok=True)
+
+    target_dir = os.path.join("data", folder_name)
+    os.makedirs(target_dir, exist_ok=True)
+
+    if category == 'email':
+        for fname in files:
+            url = base_url + fname
+            dest_gz = os.path.join(target_dir, fname)
+            dest_txt = dest_gz.replace(".gz", "")
+
+            print(f"Downloading {fname}...")
+            urllib.request.urlretrieve(url, dest_gz)
+
+            print(f"Extracting {fname}...")
+            with gzip.open(dest_gz, "rb") as f_in:
+                with open(dest_txt, "wb") as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+
+            os.remove(dest_gz)
+
+            print(f"Saved extracted file to {dest_txt}\n")
+
+        print("Email core files downloaded and extracted successfully.")
+
+    elif category == 'twitch':
+        for fname in files:
+            url = base_url + fname
+            dest_zip = os.path.join(target_dir, fname)
+
+            print(f"Downloading {fname}...")
+            urllib.request.urlretrieve(url, dest_zip)
+
+            print(f"Extracting PTBR files from {fname}...")
+            with zipfile.ZipFile(dest_zip, 'r') as z:
+                for member in z.namelist():
+                    if member.startswith("__MACOSX/") or os.path.basename(member).startswith("._"):
+                        continue
+
+                    for target_file in ["musae_PTBR_edges.csv", "musae_PTBR_target.csv"]:
+                        if member.endswith(target_file):
+                            print(f"Extracting {member}...")
+                            source = z.open(member)
+                            dest_path = os.path.join(target_dir, target_file)
+                            with open(dest_path, "wb") as f_out:
+                                shutil.copyfileobj(source, f_out)
+            os.remove(dest_zip)
+
+        print("Twitch PTBR files downloaded and extracted successfully.")
+
 
 
 def generic_show(graph, node_color, node_size, node_tooltip, k_core=3, layout_func=nx.spring_layout, width=400, height=400):
@@ -49,8 +102,8 @@ def show_mail_graph(G, k_core=3):
 
 
 def load_email(directed=False):
-    edge_list_path = 'data/email-Eu-core.txt'
-    nodes_labels_path = 'data/email-Eu-core-department-labels.txt'
+    edge_list_path = 'data/email/email-Eu-core.txt'
+    nodes_labels_path = 'data/email/email-Eu-core-department-labels.txt'
 
     G = nx.read_edgelist(edge_list_path,
                          delimiter=' ',
