@@ -13,6 +13,7 @@ import matplotlib.colors as colors
 import numpy as np
 import community as community_louvain
 from sklearn.cluster import SpectralClustering
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
 
 
@@ -107,6 +108,82 @@ def run_leiden(nx_graph, resolution=1.0, seed=42):
 
     return communities
 
+
+def metric_avg_conductance(G, communities):
+    """
+    Calculates Average Conductance (Lower is better).
+    Measures how 'leaky' the communities are (edges leaving the group vs edges inside).
+    """
+    scores = []
+    for c in communities:
+        # Conductance is undefined for the whole graph or singletons
+        if len(c) > 1 and len(c) < len(G):
+            try:
+                val = nx.conductance(G, c)
+                scores.append(val)
+            except ZeroDivisionError:
+                pass
+    
+    # If valid communities exist, return mean, else return 1.0 (worst possible score)
+    return np.mean(scores) if scores else 1.0
+
+
+def metric_internal_density(G, communities):
+    """
+    Calculates Average Internal Density (Higher is better).
+    Measures how tightly knit the nodes are inside the community.
+    """
+    densities = []
+    for c in communities:
+        if len(c) > 1:
+            sub = G.subgraph(c)
+            densities.append(nx.density(sub))
+            
+    return np.mean(densities) if densities else 0
+
+def metric_coverage(G, communities):
+    """
+    Calculates Coverage (Higher is better).
+    The fraction of total graph edges that exist WITHIN communities.
+    """
+    intra_edges = 0
+    total_edges = G.number_of_edges()
+    
+    for c in communities:
+        sub = G.subgraph(c)
+        intra_edges += sub.number_of_edges()
+        
+    return intra_edges / total_edges if total_edges > 0 else 0
+
+def metric_modularity(G, communities):
+    """
+    Standard Modularity (Higher is better).
+    Kept for reference, even if biased for Louvain.
+    """
+    try:
+        return nx.community.modularity(G, communities)
+    except:
+        return 0
+    
+def metric_ari(G, communities, ground_truth_dict):
+    """
+    Adjusted Rand Index. (0 = Random, 1 = Perfect)
+    """
+    if not ground_truth_dict: return None
+    
+    nodes = list(G.nodes())
+    y_true = [ground_truth_dict.get(n) for n in nodes]
+    
+    # Map partition to list
+    partition_map = {node: i for i, comm in enumerate(communities) for node in comm}
+    y_pred = [partition_map.get(n, -1) for n in nodes]
+    
+    # Filter out nodes missing from GT
+    valid_indices = [i for i, val in enumerate(y_true) if val is not None]
+    y_true_clean = [y_true[i] for i in valid_indices]
+    y_pred_clean = [y_pred[i] for i in valid_indices]
+
+    return adjusted_rand_score(y_true_clean, y_pred_clean)
 
 def hist_degrees_cliques(graph):
     degrees = list(nx.get_node_attributes(graph, 'degree').values())
