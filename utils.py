@@ -14,6 +14,8 @@ import numpy as np
 import community as community_louvain
 from sklearn.cluster import SpectralClustering
 from statistics import median
+from matplotlib.colors import LinearSegmentedColormap
+
 
 
 
@@ -210,7 +212,7 @@ def summary_stats(graph):
 
 def visualize_static_entire_graph(G, node_size=15):
     pos = nx.spring_layout(G, k=2, iterations=400, seed=42)
-    plt.figure(figsize=(14, 14))
+    plt.figure(figsize=(9, 8))
     nx.draw(G, pos,
             node_size=node_size,
             edge_color="gray",
@@ -343,6 +345,39 @@ def load_twitch_user_attributes(G):
     nx.set_node_attributes(G, attr_dict)
     return G, df
 
+def hist_degrees_cliques_computed(graph):
+    degrees = [d for _, d in graph.degree()]
+
+    clique_sizes = [len(c) for c in nx.find_cliques(graph)]
+
+    # --- Plotting ---
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    sns.set_theme(style="whitegrid")
+
+    # Degree distribution
+    sns.histplot(degrees, kde=True, ax=ax1, color='skyblue', bins='auto')
+    ax1.set_title('Degree Distribution', fontsize=16)
+    ax1.set_xlabel('Degree', fontsize=12)
+    ax1.set_ylabel('Frequency', fontsize=12)
+
+    # Clique size distribution
+    sns.histplot(
+        clique_sizes,
+        kde=True,
+        ax=ax2,
+        color='salmon',
+        discrete=True,
+        kde_kws={'bw_adjust': 2}
+    )
+    ax2.set_title('Clique Size (k) Distribution', fontsize=16)
+    ax2.set_xlabel('Clique Size (k)', fontsize=12)
+    ax2.set_ylabel('Frequency', fontsize=12)
+
+    ax2.xaxis.set_major_locator(MaxNLocator(integer=True))
+
+    plt.tight_layout()
+    plt.show()
+
 
 # Compare centrality measures with twitch user attributes
 def compare_centralities_with_attributes(G):
@@ -374,9 +409,56 @@ def compare_centralities_with_attributes(G):
     plt.title("Correlation Analysis", fontsize=12)
     plt.show()
 
+def draw_static_centrality_plot(G, pos, measure):
+    """
+    Static matplotlib plot:
+    - node color = centrality value (white → blue colormap)
+    - node size  = centrality value scaled
+    """
 
-def visualize_centrality(G, measure="degree", k_core=3, layout_func=nx.spring_layout):
+    sizes  = [G.nodes[n]["centrality_size"] for n in G.nodes()]
+    values = [G.nodes[n][measure] for n in G.nodes()]
+
+    plt.figure(figsize=(8, 7))
+
+    white_to_blue = LinearSegmentedColormap.from_list(
+        "white_to_blue", ["#ffffff", "#b3d9ff", "#0066cc"]
+    )
+
+    # Draw nodes
+    nodes = nx.draw_networkx_nodes(
+        G,
+        pos,
+        node_size=sizes,
+        node_color=values,
+        cmap=white_to_blue,
+        linewidths=0.2,
+        edgecolors="black"
+    )
+
+    nx.draw_networkx_edges(
+        G,
+        pos,
+        width=0.3,
+        alpha=0.03
+    )
+    cbar = plt.colorbar(nodes, shrink=0.6)   # shrink makes it smaller
+    cbar.set_label(f"{measure} centrality")
+    plt.margins(0.05)
+    plt.tight_layout()
+
+    plt.axis("off")
+    plt.title(f"Centrality measure: {measure}")
+    plt.show()
+
+
+def visualize_centrality(
+    G,
+    measure="degree",
+    layout_func=nx.spring_layout
+):
     H = G.copy()
+
     if measure == "degree":
         centrality = nx.degree_centrality(H)
         raw_degree = dict(H.degree())
@@ -396,6 +478,7 @@ def visualize_centrality(G, measure="degree", k_core=3, layout_func=nx.spring_la
         raise ValueError("Unknown centrality measure")
 
     nx.set_node_attributes(H, centrality, name=measure)
+    # Node size scaling
     max_val = max(centrality.values())
     scaled_size = {n: (centrality[n] / max_val) * 40 for n in H.nodes()}
     nx.set_node_attributes(H, scaled_size, name="centrality_size")
@@ -425,14 +508,9 @@ def visualize_centrality(G, measure="degree", k_core=3, layout_func=nx.spring_la
         else:
             H.nodes[node]["_tooltip"] = f"id={node} | {measure}={centrality[node]:.5f}"
 
-    generic_show(
-        graph=H,
-        node_color=measure,
-        node_size="centrality_size",
-        node_tooltip=["_tooltip"],
-        k_core=k_core,
-        layout_func=layout_func
-    )
+    pos = layout_func(H)
+
+    draw_static_centrality_plot(H, pos, measure)
 
 
 def twitch_user_exploratory_analysis(df):    
@@ -645,13 +723,12 @@ def draw_static_community_plot(G, pos):
         loc="lower right",
         bbox_to_anchor=(1, 0),
         frameon=True,
-        fontsize=8,         # smaller text
-        title_fontsize=9,   # slightly larger title
-        markerscale=0.6,    # shrink node markers in legend
-        handlelength=1.0,   # shrink spacing
+        fontsize=8,    
+        title_fontsize=9,
+        markerscale=0.6,    
+        handlelength=1.0,  
     )
     plt.show()
-
 
 
 def visualize_communities(
@@ -681,11 +758,8 @@ def visualize_communities(
         communities = []
         for cid in range(k):
             communities.append({nodes[i] for i, lab in enumerate(labels) if lab == cid})
-
     else:
         raise ValueError("method must be: 'leiden', 'louvain', or 'spectral'")
-
-
     # Community lookup build
     node_to_comm = {}
     for cid, nodes in enumerate(communities):
