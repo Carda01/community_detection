@@ -15,6 +15,8 @@ import community as community_louvain
 from sklearn.cluster import SpectralClustering
 from statistics import median
 from matplotlib.colors import LinearSegmentedColormap
+from collections import defaultdict
+import time
 
 
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
@@ -405,7 +407,7 @@ def show_top_nodes_by_centrality(df, centrality_measure, top_n=20):
 # ---------------------------Twitch Specific Functions ---------------------------
 
 def load_twitch_user_attributes(G):
-    df = pd.read_csv("data/musae_PTBR_target.csv")
+    df = pd.read_csv("twitch_data/musae_PTBR_target.csv")
     attr_dict = {
         row["new_id"]: {
             "id": row["new_id"],
@@ -772,7 +774,6 @@ def print_community_statistics(G, communities):
 
 def draw_static_community_plot(G, pos):
     plt.figure(figsize=(10, 8))
-
     # Draw nodes by community
     communities = {}
     for n, d in G.nodes(data=True):
@@ -792,7 +793,6 @@ def draw_static_community_plot(G, pos):
             linewidths=0.5
         )
 
-    # Draw edges
     nx.draw_networkx_edges(G, pos, width=0.3, alpha=0.3)
     plt.axis("off")
     plt.legend(
