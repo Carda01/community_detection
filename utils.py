@@ -652,7 +652,7 @@ def twitch_user_exploratory_analysis(df):
     sns.histplot(df['account_age_days'], bins=30, kde=True)
     plt.title("Distribution of Account Age (days)")
     plt.show()
-    display(Markdown("The distribution of account age shows a broad spread with two noticeable peaks around ~600 and ~1600 days, " \
+    display(Markdown("The distribution of account age shows a broad spread with two noticeable peaks around 600 and 1600 days, " \
     "indicating both a large group of relatively new users and a substantial cluster of " \
     "long-standing accounts, while very old accounts (3000+ days) are rare."))
 
@@ -1042,3 +1042,50 @@ def get_best_granular_model(df, min_communities=5):
         return df.loc[df['Composite_Score'].idxmax()]
         
     return granular_df.loc[granular_df['Composite_Score'].idxmax()]
+
+def print_single_model_metrics(G, method="leiden", resolution=1.0, k=5):
+    """
+    Runs ONE community-detection model and prints:
+    Conductance, Density, Coverage, Composite Score
+    in a clean table using only print().
+    """
+
+    if method.lower() == "leiden":
+        comms = run_leiden(G, resolution=resolution)
+    elif method.lower() == "louvain":
+        comms = nx.community.louvain_communities(G, resolution=resolution, seed=42)
+    elif method.lower() == "spectral":
+        A = nx.to_numpy_array(G)
+        sc = SpectralClustering(
+            n_clusters=k,
+            assign_labels="kmeans",
+            random_state=42,
+            affinity='nearest_neighbors'
+        )
+        labels = sc.fit_predict(A)
+        nodes = list(G.nodes())
+        d = defaultdict(set)
+        for node, label in zip(nodes, labels):
+            d[label].add(node)
+        comms = list(d.values())
+    else:
+        raise ValueError("method must be 'leiden', 'louvain', or 'spectral'")
+
+    cond = metric_avg_conductance(G, comms)
+    dens = metric_internal_density(G, comms)
+    cov = metric_coverage(G, comms)
+
+    composite = (0.4 * (1 - cond)) + (0.3 * dens) + (0.3 * cov)
+
+    print("\n=== COMMUNITY QUALITY METRICS ===")
+    headers = ["Algorithm", "Composite", "Conductance", "Density", "Coverage"]
+
+    print(f"{headers[0]:<12} | {headers[1]:<10} | {headers[2]:<12} | "
+          f"{headers[3]:<8} | {headers[4]:<8}")
+    print("-" * 70)
+
+    print(f"{method.capitalize():<12} | "
+          f"{composite:<10.4f} | "
+          f"{cond:<12.4f} | "
+          f"{dens:<8.4f} | "
+          f"{cov:<8.4f}")
