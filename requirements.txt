@@ -9,3 +9,6 @@ seaborn
 leidenalg
 igraph
 python-louvain
+numpy
+joblib
+tqdm

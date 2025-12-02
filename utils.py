@@ -94,6 +94,69 @@ def generic_show(graph, node_color, node_size, node_tooltip, k_core=3, layout_fu
 
     chart.properties(width=width, height=height).interactive().show()
 
+def _get_categorical_colors(G, color_attr):
+    """Helper to map a categorical node attribute to a color map."""
+    if not nx.get_node_attributes(G, color_attr):
+        return 'skyblue', None, None # Default color
+
+    values = [G.nodes[n][color_attr] for n in G.nodes()]
+    unique_values = sorted(list(set(values)))
+    
+    # Create a mapping from value to an integer
+    val_to_int = {val: i for i, val in enumerate(unique_values)}
+    int_colors = [val_to_int[v] for v in values]
+    
+    # Create a colormap and a colorbar
+    cmap = plt.cm.get_cmap('viridis', len(unique_values))
+    
+    # Create a mappable object for the colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=len(unique_values)-1))
+    sm.set_array([])
+
+    return int_colors, cmap, sm
+
+def generic_show_static(graph, node_color, node_size, k_core=3, layout_func=nx.spring_layout, width=8, height=8):
+    """A static version of generic_show."""
+    G = nx.k_core(graph, k=k_core)
+    if not G.nodes():
+        print("Graph is empty after applying k-core filter.")
+        return
+
+    fig, ax = plt.subplots(figsize=(width, height))
+    pos = layout_func(G)    
+    
+    if isinstance(node_size, str):
+        sizes = [G.nodes[n].get(node_size, 10) for n in G.nodes()]
+    else:
+        # Assume it's a fixed size for all nodes
+        sizes = node_size
+
+    colors, cmap, sm = _get_categorical_colors(G, node_color)
+
+    #nx.draw(G, pos, ax=ax, node_size=sizes, node_color=colors, cmap=cmap, width=0.5, alpha=0.8, with_labels=False)
+    nodes = nx.draw_networkx_nodes(
+        G,
+        pos,
+        node_size=sizes,
+        node_color= colors,
+        cmap= cmap,
+        linewidths=0.2,
+        edgecolors="black"
+    )
+
+    nx.draw_networkx_edges(
+        G,
+        pos,
+        width=0.3,
+        alpha=0.05
+    )
+
+
+    if sm:
+        cbar = plt.colorbar(sm, ax=ax)
+        cbar.set_label(node_color.replace('_', ' ').capitalize())
+    plt.show()
+
 
 def show_mail_graph(G, k_core=3):
     enrich_graph_with_centrality(G, [nx.degree])
