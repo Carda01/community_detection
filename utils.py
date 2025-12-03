@@ -98,7 +98,7 @@ def generic_show(graph, node_color, node_size, node_tooltip, k_core=3, layout_fu
 
     chart.properties(width=width, height=height).interactive().show()
 
-def generic_show_static(graph, node_color, node_size, k_core=3, layout_func=nx.spring_layout, width=10, height=10):
+def generic_show_static(graph, node_color=None, node_size=15, k_core=3, layout_func=nx.spring_layout, width=10, height=10):
     G = nx.k_core(graph, k=k_core)
     if len(G.nodes) == 0:
         print(f"Resulting graph is empty (no nodes with k-core >= {k_core})")
@@ -141,7 +141,7 @@ def generic_show_static(graph, node_color, node_size, k_core=3, layout_func=nx.s
     fig, ax = plt.subplots(figsize=(width, height))
 
     nx.draw_networkx_edges(G, pos, ax=ax, alpha=0.4, width=0.1, edge_color='gray')
-    nx.draw_networkx_nodes(G, pos, ax=ax, node_color=final_colors, node_size=final_sizes, alpha=0.9)
+    nx.draw_networkx_nodes(G, pos, ax=ax, node_color=final_colors, node_size=final_sizes, alpha=0.75)
 
     if is_continuous:
         cbar = plt.colorbar(sm, ax=ax, shrink=0.8)
@@ -1285,3 +1285,109 @@ def simulate_and_tag_infection(G, seeds, p=0.01):
     nx.set_node_attributes(H, {node: True for node in all_infected}, 'infected')
 
     return H
+
+
+def calculate_department_assortativity(G):
+    departments = set(nx.get_node_attributes(G, 'ground_truth').values())
+    if not departments:
+        print("Warning: Could not find 'ground_truth' attribute on graph nodes.")
+        return {}
+
+    assortativity_results = {}
+    temp_attr_name = "_is_in_dept"
+
+    for dept_id in sorted(list(departments)):
+        attr_map = {node: (G.nodes[node].get('ground_truth') == dept_id) for node in G.nodes()}
+        nx.set_node_attributes(G, attr_map, name=temp_attr_name)
+        assortativity_results[dept_id] = nx.attribute_assortativity_coefficient(G, attribute=temp_attr_name)
+
+    return assortativity_results
+
+
+def visualize_assortativity(assortativity_results):
+    if not assortativity_results:
+        print("Assortativity results are empty. Nothing to plot.")
+        return
+
+    sorted_items = sorted(assortativity_results.items(), key=lambda item: item[1])
+    departments = [f"Dept. {item[0]}" for item in sorted_items]
+    scores = [item[1] for item in sorted_items]
+
+    colors = ['skyblue' if score >= 0 else 'salmon' for score in scores]
+
+    fig_height = max(8, len(departments) * 0.25)
+    fig, ax = plt.subplots(figsize=(12, fig_height))
+
+    y_pos = np.arange(len(departments))
+    ax.barh(y_pos, scores, color=colors, align='center')
+
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(departments, fontsize=9)
+    ax.set_xlabel('Assortativity Coefficient (Homophily)', fontsize=12)
+    ax.set_title('Department Assortativity', fontsize=16, pad=20)
+
+    ax.axvline(0, color='black', linewidth=0.8, linestyle='--')
+    ax.grid(axis='x', linestyle='--', alpha=0.7)
+
+    plt.tight_layout()
+    plt.show()
+
+
+def visualize_infection_and_assortativity(G):
+    department_stats = defaultdict(lambda: {'total': 0, 'infected': 0})
+    for node, data in G.nodes(data=True):
+        dept = data.get('ground_truth')
+        is_infected = data.get('infected', False)
+        if dept is not None:
+            department_stats[dept]['total'] += 1
+            if is_infected:
+                department_stats[dept]['infected'] += 1
+
+    if not department_stats:
+        print("Could not find 'ground_truth' or 'infected' attributes.")
+        return
+
+    infection_percentages = {
+        dept: (stats['infected'] / stats['total']) * 100 if stats['total'] > 0 else 0
+        for dept, stats in department_stats.items()
+    }
+
+    assortativity_results = calculate_department_assortativity(G)
+
+    sorted_depts = sorted(infection_percentages.keys(), key=lambda dept: infection_percentages.get(dept, 0))
+
+    dept_labels = [f"Dept. {d}" for d in sorted_depts]
+    infection_scores = [infection_percentages.get(d, 0) for d in sorted_depts]
+    assortativity_scores = [assortativity_results.get(d, 0) for d in sorted_depts]
+
+    x = np.arange(len(dept_labels))
+    bar_width = 0.4
+
+    fig_height = max(10, len(dept_labels) * 0.25)
+    fig, ax1 = plt.subplots(figsize=(14, fig_height))
+
+    bars1 = ax1.barh(x - bar_width/2, infection_scores, bar_width,
+                     label='Infection Rate', color='mediumpurple', align='center')
+    ax1.set_xlabel('Infection Percentage (%)', fontsize=12, color='mediumpurple')
+    ax1.tick_params(axis='y', length=0) # Hide y-axis ticks
+    ax1.tick_params(axis='x', labelcolor='mediumpurple')
+    ax1.set_yticks(x)
+    ax1.set_yticklabels(dept_labels, fontsize=9)
+    ax1.set_xlim(0, 100)
+
+    ax2 = ax1.twiny()
+
+    bars2 = ax2.barh(x + bar_width/2, assortativity_scores, bar_width,
+                     label='Assortativity', color='skyblue', align='center')
+    ax2.set_xlabel('Assortativity Coefficient', fontsize=12, color='skyblue')
+    ax2.tick_params(axis='x', labelcolor='skyblue')
+    ax2.set_xlim(min(assortativity_scores) - 0.1, max(assortativity_scores) + 0.1)
+
+    ax1.set_title('Infection Rate vs. Assortativity by Department', fontsize=16, pad=20)
+    ax1.grid(axis='x', linestyle='--', alpha=0.6, which='major')
+    ax2.grid(axis='x', linestyle=':', alpha=0.5, which='major')
+    ax1.axvline(0, color='grey', linewidth=0.5) # Line at 0 for infection
+    ax2.axvline(0, color='black', linewidth=0.8, linestyle='--') # Line at 0 for assortativity
+
+    fig.tight_layout()
+    plt.show()
