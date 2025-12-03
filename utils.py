@@ -1161,7 +1161,10 @@ def __run_single_simulation(G, seeds, p):
     while newly_activated:
         potential_infections = []
         for node in newly_activated:
-            neighbors = list(G.successors(node))
+            if G.is_directed():
+                neighbors = list(G.successors(node))
+            else:
+                neighbors = list(G.neighbors(node))
             if not neighbors: continue
 
             success = np.random.random(len(neighbors)) < p
@@ -1218,7 +1221,7 @@ def celf(G, k, p=0.01, mc=1000):
                 margins.pop(0)
                 break
 
-            new_spread = get_spread(G, S + [current_node], p, mc)
+            new_spread = get_spread(G, S + [current_node], p, mc, n_jobs=-1)
             new_gain = max(0, new_spread - spread)
 
             margins[0] = [current_node, new_gain, current_seed_round]
@@ -1256,10 +1259,10 @@ def greedy(G, k, p=0.01, mc=1000, n_jobs=-1):
 
         print(f"  > Finding seed {i + 1}/{k} (evaluating {len(candidate_nodes)} nodes)...")
 
-        gains = Parallel(n_jobs=n_jobs)(delayed(get_spread)(G, S + [node], p, mc, 1) for node in tqdm(candidate_nodes))
+        gains = Parallel(n_jobs=n_jobs)(delayed(get_spread)(G, S + [node], p, mc=mc, n_jobs=1) for node in tqdm(candidate_nodes))
 
         for j, node in enumerate(candidate_nodes):
-            marginal_gain = gains[j] - spread
+            marginal_gain = max(0, gains[j] - spread)
             if marginal_gain > best_marginal_gain:
                 best_marginal_gain = marginal_gain
                 best_node = node
@@ -1284,10 +1287,7 @@ def simulate_and_tag_infection(G, seeds, p=0.01):
     all_infected = set(seeds)
     newly_activated = seeds[:]
 
-    while newly_activated:
-        new_infections = __run_single_simulation(H, newly_activated, p) - all_infected
-        newly_activated = list(new_infections)
-        all_infected.update(newly_activated)
+    all_infected = __run_single_simulation(H, newly_activated, p) - all_infected
 
     nx.set_node_attributes(H, {node: True for node in all_infected}, 'infected')
 
