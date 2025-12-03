@@ -150,7 +150,6 @@ def generic_show_static(graph, node_color, node_size, k_core=3, layout_func=nx.s
         ax.legend(handles=legend_handles, title=node_color, loc='best')
 
     ax.axis('off')
-    ax.set_title(f"Network by '{node_color}' (K-Core: {k_core})")
     plt.show()
 
 
