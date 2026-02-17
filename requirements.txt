@@ -12,3 +12,5 @@ python-louvain
 numpy
 joblib
 tqdm
+torch
+torch_geometric
