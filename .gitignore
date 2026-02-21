@@ -1,4 +1,5 @@
 data/*
 .idea
 __pycache__/
+.graph_venv/*
 graph_ml/data/*
